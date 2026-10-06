@@ -375,7 +375,7 @@ public class Main {
 
         JTextField courseField = UITheme.field("e.g. CSE-3202");
         JTextField studentField = UITheme.field("e.g. 2021831045");
-        JTextField centralField = UITheme.field("Optional - sir-er PC er IP (e.g. 192.168.0.50)");
+        JTextField centralField = UITheme.field("Sir-er PC er IP (e.g. 192.168.0.50)");
         JTextField codeField = UITheme.field("Exam code sir theke (e.g. 482913)");
         codeField.setMaximumSize(new Dimension(400, 42));
         courseField.setMaximumSize(new Dimension(400, 42));
@@ -426,7 +426,7 @@ public class Main {
         card.add(Box.createVerticalStrut(14));
         card.add(labelled("Exam code - sir theke nite hobe (central monitoring)", codeField));
         card.add(Box.createVerticalStrut(10));
-        card.add(labelled("Sir-er PC IP - optional (auto-discover fail korle)", centralField));
+        card.add(labelled("Sir-er PC IP - central monitoring er jonno lagbe", centralField));
         card.add(Box.createVerticalStrut(24));
         card.add(startBtn);
         card.add(Box.createVerticalStrut(10));

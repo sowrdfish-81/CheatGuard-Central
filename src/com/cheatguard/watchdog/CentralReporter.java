@@ -6,13 +6,9 @@ import com.cheatguard.core.Violation;
 
 import java.io.File;
 import java.io.OutputStream;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
 import java.net.Socket;
-import java.net.StandardSocketOptions;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -22,12 +18,13 @@ import java.util.List;
  * Streams this student's audit events to the invigilator's central monitor over
  * the exam LAN.
  *
- * <p>The invigilator's Cheat.Guard (central-monitor mode) broadcasts its presence
- * on UDP 47822; this client listens for that beacon, remembers the address and
- * keeps a TCP connection to it on port 47821. Every violation, plus the session
- * start and end, is forwarded as one text line. When the monitor is unreachable
- * the events queue (bounded) and are flushed on reconnect - nothing here can
- * ever block or break the exam itself.
+ * <p>The student types TWO things on the session setup card: the invigilator's
+ * IP and the exam code he shared. This client keeps a TCP connection to that
+ * IP on port 47821 and forwards every violation, plus the session start and
+ * end, as one text line. When the monitor is unreachable the events queue
+ * (bounded) and are flushed on reconnect - nothing here can ever block or
+ * break the exam itself. There is NO auto-discovery: without the IP and code
+ * the alerts stay on the student's own PC.
  *
  * <p>Mice and keyboards never appear in the feed (they are not device-monitored);
  * everything the watchdog flags locally is what the invigilator sees.
@@ -43,13 +40,12 @@ public final class CentralReporter {
     private final String hostPc;
     private final ArrayDeque<String> queue = new ArrayDeque<>();
     private volatile String centralHost = "";
-    /** Manually typed invigilator IP - wins over the beacon while set. */
+    /** The invigilator's IP, typed on the setup card. */
     private final String manualHost;
-    /** The exam code sir shared; only a beacon/monitor with this code is joined. */
+    /** The exam code sir shared; the monitor rejects connections with other codes. */
     private final String examCode;
     private volatile boolean running;
     private Thread worker;
-    private Thread beaconListener;
 
     public CentralReporter(ExamSession session) {
         this(session, "", "");
@@ -71,13 +67,10 @@ public final class CentralReporter {
         this.hostPc = pc.isEmpty() ? "PC" : pc;
     }
 
-    /** Start the beacon listener and the sender loop. Best effort, never throws. */
+    /** Start the sender loop. Best effort, never throws. */
     public void start() {
         if (running) return;
         running = true;
-        beaconListener = new Thread(this::beaconLoop, "CheatGuard-CentralBeacon");
-        beaconListener.setDaemon(true);
-        beaconListener.start();
         worker = new Thread(this::sendLoop, "CheatGuard-CentralSender");
         worker.setDaemon(true);
         worker.start();
@@ -94,7 +87,6 @@ public final class CentralReporter {
                         + " | PC=" + hostPc,
                 Violation.Severity.INFO));
         running = false;
-        if (beaconListener != null) beaconListener.interrupt();
         if (worker != null) worker.interrupt();
     }
 
@@ -128,50 +120,6 @@ public final class CentralReporter {
 
     private static String sanitize(String s) {
         return s == null ? "" : s.replace("@@@", " @ ").replace("\n", " ").replace("\r", " ");
-    }
-
-    /** Listen for the invigilator's UDP beacon; remember the newest address. */
-    private void beaconLoop() {
-        try (DatagramSocket socket = new DatagramSocket(null)) {
-            socket.setOption(StandardSocketOptions.SO_REUSEADDR, true);
-            socket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), DISCOVERY_UDP_PORT));
-            byte[] buf = new byte[256];
-            while (running) {
-                DatagramPacket packet = new DatagramPacket(buf, buf.length);
-                try {
-                    socket.receive(packet);
-                    String text = new String(packet.getData(), packet.getOffset(), packet.getLength(),
-                            StandardCharsets.UTF_8).trim();
-                    if (text.startsWith(BEACON_PREFIX)) {
-                        String rest = text.substring(BEACON_PREFIX.length()).trim();
-                        String addr = rest;
-                        String beaconCode = "";
-                        int sep = rest.indexOf("@@@");
-                        if (sep >= 0) {
-                            addr = rest.substring(0, sep).trim();
-                            beaconCode = rest.substring(sep + 3).trim();
-                        }
-                        if (!examCode.isEmpty()) {
-                            // join only the monitor whose exam code matches ours
-                            if (beaconCode.equalsIgnoreCase(examCode) && !addr.isEmpty()) {
-                                centralHost = addr;
-                                persistCentralIp(addr);
-                            }
-                        } else if (!addr.isEmpty() && manualHost.isEmpty()) {
-                            // a manually typed IP is intentional and wins over beacons
-                            centralHost = addr;
-                            // the helper's firewall rule allows this IP on TCP 47821
-                            persistCentralIp(addr);
-                        }
-                    }
-                } catch (Exception e) {
-                    if (running) sleepQuiet(500);
-                    else return;
-                }
-            }
-        } catch (Exception e) {
-            AppLog.warn("Central discovery listener unavailable: " + e.getMessage());
-        }
     }
 
     /** Connect/reconnect to the central monitor and drain the queue. */

@@ -983,7 +983,6 @@ try {
     # the central IP appears in central-ip.txt once a beacon arrives, and the
     # watcher loop below refreshes the rule for late beacons.
     $centralPort = [int]$cfg.centralPort
-    New-NetFirewallRule -PolicyStore PersistentStore -DisplayName 'Cheat.Guard - central discovery in' -Group $groupName -Direction Inbound -Protocol UDP -LocalPort 47822 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
 
     function Set-CentralRule {
         if ([string]::IsNullOrWhiteSpace($cfg.centralIpFile)) { return }

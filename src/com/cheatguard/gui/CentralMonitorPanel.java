@@ -34,7 +34,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class CentralMonitorPanel extends JPanel {
 
     private static final int CENTRAL_TCP_PORT = 47821;
-    private static final int DISCOVERY_UDP_PORT = 47822;
     private static final String BEACON_PREFIX = "CHEATGUARD-CENTRAL@@@";
 
     private final DefaultTableModel model = new DefaultTableModel(
@@ -52,7 +51,6 @@ public class CentralMonitorPanel extends JPanel {
     private volatile String examCode = "";
     private ServerSocket serverSocket;
     private Thread acceptThread;
-    private Thread beaconThread;
     private BufferedWriter csvWriter;
     private File csvFile;
 
@@ -155,11 +153,8 @@ public class CentralMonitorPanel extends JPanel {
             acceptThread = new Thread(this::acceptLoop, "CheatGuard-CentralAccept");
             acceptThread.setDaemon(true);
             acceptThread.start();
-            beaconThread = new Thread(this::beaconLoop, "CheatGuard-CentralBeaconSrv");
-            beaconThread.setDaemon(true);
-            beaconThread.start();
-            statusLabel.setText("Exam code " + code + " - students type this code to join. Listening on port "
-                    + CENTRAL_TCP_PORT + ".");
+            statusLabel.setText("Your IP: " + firstLanIp() + "  |  Exam code: " + code
+                    + "  |  Students enter BOTH on their PC, then start the session.");
             statusLabel.setForeground(UITheme.ACCENT_TEAL);
         } catch (Exception e) {
             statusLabel.setText("Could not start: " + e.getMessage()
@@ -271,25 +266,7 @@ public class CentralMonitorPanel extends JPanel {
 
     // -------------------------------------------------------------- beacon ----
 
-    /** Announce this machine on every LAN interface so student PCs find it. */
-    private void beaconLoop() {
-        byte[] payload = (BEACON_PREFIX + firstLanIp() + "@@@" + examCode).getBytes(StandardCharsets.UTF_8);
-        while (running) {
-            try (DatagramSocket socket = new DatagramSocket()) {
-                socket.setBroadcast(true);
-                for (InetAddress broadcast : broadcastAddresses()) {
-                    try {
-                        socket.send(new DatagramPacket(payload, payload.length,
-                                broadcast, DISCOVERY_UDP_PORT));
-                    } catch (Exception ignored) {
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-            sleepQuiet(2000);
-        }
-    }
-
+    /** This machine's LAN IP, shown so the invigilator can share it with students. */
     private String firstLanIp() {
         try {
             Enumeration<NetworkInterface> ifs = NetworkInterface.getNetworkInterfaces();
@@ -307,29 +284,6 @@ public class CentralMonitorPanel extends JPanel {
         return "127.0.0.1";
     }
 
-    private java.util.List<InetAddress> broadcastAddresses() {
-        java.util.List<InetAddress> out = new java.util.ArrayList<>();
-        try {
-            out.add(InetAddress.getByName("255.255.255.255"));
-            Enumeration<NetworkInterface> ifs = NetworkInterface.getNetworkInterfaces();
-            while (ifs.hasMoreElements()) {
-                NetworkInterface ni = ifs.nextElement();
-                if (!ni.isUp() || ni.isLoopback()) continue;
-                Enumeration<InetAddress> addrs = ni.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    InetAddress a = addrs.nextElement();
-                    if (a.isSiteLocalAddress()) {
-                        byte[] ip = a.getAddress();
-                        ip[ip.length - 1] = (byte) 255;
-                        out.add(InetAddress.getByAddress(ip));
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
-    }
-
     // ------------------------------------------------------- firewall + csv ----
 
     /** Allow student PCs to reach this port (the app runs elevated, so no prompt). */
@@ -337,9 +291,6 @@ public class CentralMonitorPanel extends JPanel {
         runQuiet("netsh", "advfirewall", "firewall", "add", "rule",
                 "name=CheatGuard Central Monitor", "dir=in", "action=allow",
                 "protocol=TCP", "localport=" + CENTRAL_TCP_PORT);
-        runQuiet("netsh", "advfirewall", "firewall", "add", "rule",
-                "name=CheatGuard Central Discovery", "dir=in", "action=allow",
-                "protocol=UDP", "localport=" + DISCOVERY_UDP_PORT);
     }
 
     private static String randomCode() {
