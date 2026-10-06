@@ -128,10 +128,31 @@ public class CentralMonitorPanel extends JPanel {
         studentTable.setFont(UITheme.FONT_BODY);
         studentTable.getTableHeader().setFont(UITheme.FONT_SECTION);
         studentTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        studentTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
+        studentTable.setBackground(new Color(0x0F131C));
+        studentTable.setForeground(UITheme.TEXT_WHITE);
+        studentTable.getTableHeader().setDefaultRenderer(new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable t, Object value,
+                    boolean sel, boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                c.setBackground(new Color(0x141927));
+                c.setForeground(UITheme.TEXT_MUTED);
+                c.setFont(UITheme.FONT_SECTION);
+                ((JComponent) c).setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+                return c;
+            }
+        });
+        int[] studentWidths = {190, 150, 150, 170, 95, 130};
+        for (int i = 0; i < studentWidths.length && i < studentTable.getColumnCount(); i++) {
+            studentTable.getColumnModel().getColumn(i).setPreferredWidth(studentWidths[i]);
+            studentTable.getColumnModel().getColumn(i).setMinWidth(70);
+        }
+        studentTable.getTableHeader().setReorderingAllowed(false);
         studentTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override public Component getTableCellRendererComponent(JTable t, Object value,
                     boolean sel, boolean focus, int row, int col) {
                 Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                c.setBackground(new Color(0x0F131C));
                 String status = row < t.getModel().getRowCount()
                         ? String.valueOf(t.getModel().getValueAt(row, 3)) : "";
                 if ("CHEAT CONFIRMED".equals(status)) {
@@ -142,8 +163,10 @@ public class CentralMonitorPanel extends JPanel {
                     c.setFont(UITheme.FONT_SECTION);
                 } else if ("CLEARED".equals(status)) {
                     c.setForeground(UITheme.ACCENT_TEAL);
+                    c.setFont(UITheme.FONT_BODY);
                 } else {
                     c.setForeground(UITheme.TEXT_WHITE);
+                    c.setFont(UITheme.FONT_BODY);
                 }
                 return c;
             }
@@ -157,6 +180,12 @@ public class CentralMonitorPanel extends JPanel {
         studentScroll.getViewport().setBackground(UITheme.BG_INPUT);
 
         codeField.setFont(UITheme.FONT_SECTION);
+        codeField.setForeground(UITheme.TEXT_WHITE);
+        codeField.setBackground(new Color(0x0F131C));
+        codeField.setCaretColor(UITheme.TEXT_WHITE);
+        codeField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0x2A3242), 1),
+                BorderFactory.createEmptyBorder(6, 10, 6, 10)));
         codeField.setPreferredSize(new Dimension(150, 34));
         codeField.setText(randomCode());
         JButton shuffle = UITheme.ghost("New code");
@@ -166,24 +195,26 @@ public class CentralMonitorPanel extends JPanel {
         JButton stop = UITheme.ghost("Stop");
         stop.addActionListener(e -> stopMonitor());
 
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         controls.setOpaque(false);
         controls.add(new JLabel("Exam code:"));
         controls.add(codeField);
         controls.add(shuffle);
         controls.add(start);
         controls.add(stop);
-        controls.add(Box.createHorizontalStrut(12));
         counters.setFont(UITheme.FONT_SECTION);
-        controls.add(counters);
+        JPanel controlsRow = new JPanel(new BorderLayout(10, 0));
+        controlsRow.setOpaque(false);
+        controlsRow.add(controls, BorderLayout.WEST);
+        controlsRow.add(counters, BorderLayout.EAST);
 
         statusLabel.setFont(UITheme.FONT_BODY);
 
         JPanel listCard = UITheme.card();
-        listCard.setLayout(new BorderLayout(10, 10));
-        JPanel top = new JPanel(new BorderLayout(0, 10));
+        listCard.setLayout(new BorderLayout(10, 12));
+        JPanel top = new JPanel(new BorderLayout(0, 12));
         top.setOpaque(false);
-        top.add(controls, BorderLayout.NORTH);
+        top.add(controlsRow, BorderLayout.NORTH);
         top.add(statusLabel, BorderLayout.SOUTH);
         listCard.add(top, BorderLayout.NORTH);
         listCard.add(studentScroll, BorderLayout.CENTER);
@@ -218,13 +249,33 @@ public class CentralMonitorPanel extends JPanel {
 
         eventTable.setRowHeight(26);
         eventTable.setFont(UITheme.FONT_BODY);
+        eventTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
+        eventTable.setBackground(new Color(0x0F131C));
+        eventTable.setForeground(UITheme.TEXT_WHITE);
+        eventTable.getTableHeader().setDefaultRenderer(new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable t, Object value,
+                    boolean sel, boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                c.setBackground(new Color(0x141927));
+                c.setForeground(UITheme.TEXT_MUTED);
+                c.setFont(UITheme.FONT_SECTION);
+                ((JComponent) c).setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+                return c;
+            }
+        });
+        int[] eventWidths = {110, 110};
+        for (int i = 0; i < eventWidths.length && i < eventTable.getColumnCount(); i++) {
+            eventTable.getColumnModel().getColumn(i).setPreferredWidth(eventWidths[i]);
+            eventTable.getColumnModel().getColumn(i).setMinWidth(80);
+        }
+        eventTable.getTableHeader().setReorderingAllowed(false);
         JScrollPane eventScroll = UITheme.scroll(eventTable);
         eventScroll.getViewport().setBackground(UITheme.BG_INPUT);
 
         JPanel detailCard = UITheme.card();
         detailCard.setLayout(new BorderLayout(10, 10));
         detailCard.add(detailHeader, BorderLayout.NORTH);
-        JPanel detailCenter = new JPanel(new BorderLayout(0, 10));
+        JPanel detailCenter = new JPanel(new BorderLayout(0, 12));
         detailCenter.setOpaque(false);
         detailCenter.add(detailTitle, BorderLayout.NORTH);
         detailCenter.add(eventScroll, BorderLayout.CENTER);
