@@ -263,8 +263,8 @@ public class CentralMonitorPanel extends JPanel {
             acceptThread = new Thread(this::acceptLoop, "CheatGuard-CentralAccept");
             acceptThread.setDaemon(true);
             acceptThread.start();
-            statusLabel.setText("Your IP: " + firstLanIp() + "  |  Exam code: " + code
-                    + "  |  Students enter BOTH on their PC, then start the session.");
+            statusLabel.setText("Your LAN IP: " + firstLanIp() + "  |  Exam code: " + code
+                    + "  |  Students must be on the SAME Wi-Fi/network as you.");
             statusLabel.setForeground(UITheme.ACCENT_TEAL);
         } catch (Exception e) {
             statusLabel.setText("Could not start: " + e.getMessage() + " (port already in use?)");
@@ -564,19 +564,47 @@ public class CentralMonitorPanel extends JPanel {
         return "\"" + s + "\"";
     }
 
-    /** This machine's LAN IP, shown so the invigilator can share it with students. */
+    /**
+     * This machine's REAL LAN IP - the address students must type. Virtual
+     * adapters (WSL, Hyper-V, VirtualBox, VPN tunnels) also hold site-local
+     * addresses and the old picker grabbed those, showing a useless IP.
+     * Primary source: the adapter that owns the default gateway (Windows knows
+     * which one is really online). Fallback: the Java enumeration with virtual
+     * adapters excluded.
+     */
     private String firstLanIp() {
         try {
+            Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
+                    "-WindowStyle", "Hidden", "-Command",
+                    "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } "
+                            + "| Select-Object -First 1).IPv4Address.IPAddress")
+                    .redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8).trim();
+            p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (out.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return out;
+        } catch (Exception ignored) {
+        }
+        try {
             Enumeration<NetworkInterface> ifs = NetworkInterface.getNetworkInterfaces();
+            String fallback = "";
             while (ifs.hasMoreElements()) {
                 NetworkInterface ni = ifs.nextElement();
                 if (!ni.isUp() || ni.isLoopback()) continue;
+                String name = (ni.getName() + " " + ni.getDisplayName()).toLowerCase();
+                if (name.contains("wsl") || name.contains("hyper-v") || name.contains("virtual")
+                        || name.contains("vethernet") || name.contains("loopback")
+                        || name.contains("tunnel") || name.contains("tailscale")) continue;
                 Enumeration<InetAddress> addrs = ni.getInetAddresses();
                 while (addrs.hasMoreElements()) {
                     InetAddress a = addrs.nextElement();
-                    if (a.isSiteLocalAddress()) return a.getHostAddress();
+                    if (!a.isSiteLocalAddress()) continue;
+                    String ip = a.getHostAddress();
+                    if (ip.startsWith("192.168.")) return ip;
+                    if (fallback.isEmpty()) fallback = ip;
                 }
             }
+            if (!fallback.isEmpty()) return fallback;
         } catch (Exception ignored) {
         }
         return "127.0.0.1";
