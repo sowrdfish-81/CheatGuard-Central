@@ -375,8 +375,11 @@ public class Main {
 
         JTextField courseField = UITheme.field("e.g. CSE-3202");
         JTextField studentField = UITheme.field("e.g. 2021831045");
+        JTextField centralField = UITheme.field("Optional - sir-er PC er IP (e.g. 192.168.0.50)");
         courseField.setMaximumSize(new Dimension(400, 42));
         studentField.setMaximumSize(new Dimension(400, 42));
+        centralField.setMaximumSize(new Dimension(400, 42));
+        centralField.setText(AppConfig.getInstance().getCentralHost());
 
         JButton startBtn = UITheme.primary("Start monitoring");
         JButton backBtn = UITheme.ghost("Back");
@@ -400,6 +403,7 @@ public class Main {
                         "No approved websites", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (choice != JOptionPane.YES_OPTION) return;
             }
+            AppConfig.getInstance().setCentralHost(centralField.getText().trim());
             startExam(course, student);
         };
         startBtn.addActionListener(e -> doStart.run());
@@ -416,6 +420,8 @@ public class Main {
         card.add(labelled("Course code", courseField));
         card.add(Box.createVerticalStrut(14));
         card.add(labelled("Student ID", studentField));
+        card.add(Box.createVerticalStrut(14));
+        card.add(labelled("Invigilator PC IP - optional, for central monitoring", centralField));
         card.add(Box.createVerticalStrut(24));
         card.add(startBtn);
         card.add(Box.createVerticalStrut(10));
@@ -445,7 +451,8 @@ public class Main {
         // sweep...) are recorded in the sealed log but NOT shown or counted: the
         // first 30 seconds are the machine settling down, not the student.
         long[] pills = new long[2]; // red, blocked
-        com.cheatguard.watchdog.CentralReporter reporter = new com.cheatguard.watchdog.CentralReporter(activeSession);
+        com.cheatguard.watchdog.CentralReporter reporter = new com.cheatguard.watchdog.CentralReporter(
+                activeSession, AppConfig.getInstance().getCentralHost());
         centralReporter = reporter;
         reporter.start();
         ViolationListener liveListener = violation -> SwingUtilities.invokeLater(() -> {

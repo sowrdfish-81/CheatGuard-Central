@@ -363,6 +363,22 @@ public class AppConfig {
         if (!key.isEmpty()) profileFile(key).delete();
     }
 
+    // ------------------------------------------------- central monitor host
+
+    /** The invigilator PC's IP typed manually (used when LAN auto-discover fails). */
+    public synchronized String getCentralHost() {
+        String v = configValues.get("central.host");
+        return v == null ? "" : v.trim();
+    }
+
+    public synchronized void setCentralHost(String host) {
+        String v = host == null ? "" : host.trim().replace("http://", "").replace("https://", "");
+        if (v.endsWith("/")) v = v.substring(0, v.length() - 1);
+        if (v.isEmpty()) configValues.remove("central.host");
+        else configValues.put("central.host", v);
+        save();
+    }
+
     /** Generic marker/flag storage (e.g. toolchain scan version). */
     public synchronized String getConfigValue(String key) {
         return configValues.get(key);

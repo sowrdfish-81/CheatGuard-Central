@@ -43,12 +43,23 @@ public final class CentralReporter {
     private final String hostPc;
     private final ArrayDeque<String> queue = new ArrayDeque<>();
     private volatile String centralHost = "";
+    /** Manually typed invigilator IP - wins over the beacon while set. */
+    private final String manualHost;
     private volatile boolean running;
     private Thread worker;
     private Thread beaconListener;
 
     public CentralReporter(ExamSession session) {
+        this(session, "");
+    }
+
+    public CentralReporter(ExamSession session, String manualHost) {
         this.session = session;
+        this.manualHost = manualHost == null ? "" : manualHost.trim();
+        if (!this.manualHost.isEmpty()) {
+            centralHost = this.manualHost;
+            persistCentralIp(this.manualHost);
+        }
         String pc = "PC";
         try {
             pc = InetAddress.getLocalHost().getHostName().trim();
@@ -101,6 +112,17 @@ public final class CentralReporter {
         }
     }
 
+    /** Tell the firewall helper which IP to let through on TCP 47821. */
+    private static void persistCentralIp(String addr) {
+        try {
+            java.nio.file.Files.write(
+                    java.nio.file.Paths.get(System.getenv("ProgramData"),
+                            "CheatGuard", "network", "central-ip.txt"),
+                    addr.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
+
     private static String sanitize(String s) {
         return s == null ? "" : s.replace("@@@", " @ ").replace("\n", " ").replace("\r", " ");
     }
@@ -119,16 +141,11 @@ public final class CentralReporter {
                             StandardCharsets.UTF_8).trim();
                     if (text.startsWith(BEACON_PREFIX)) {
                         String addr = text.substring(BEACON_PREFIX.length()).trim();
-                        if (!addr.isEmpty()) {
+                        if (!addr.isEmpty() && manualHost.isEmpty()) {
+                            // a manually typed IP is intentional and wins over beacons
                             centralHost = addr;
                             // the helper's firewall rule allows this IP on TCP 47821
-                            try {
-                                java.nio.file.Files.write(
-                                        java.nio.file.Paths.get(System.getenv("ProgramData"),
-                                                "CheatGuard", "network", "central-ip.txt"),
-                                        addr.getBytes(StandardCharsets.UTF_8));
-                            } catch (Exception ignored) {
-                            }
+                            persistCentralIp(addr);
                         }
                     }
                 } catch (Exception e) {

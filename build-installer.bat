@@ -10,7 +10,7 @@ rem  own Java runtime - nothing else to build or download.
 rem ============================================================
 
 rem Internal MSI version only (upgrade machinery); the shipped file carries no version.
-set "APP_VERSION=1.0"
+set "APP_VERSION=1.1"
 set "APP_NAME=CheatGuardCentral"
 set "SETUP_EXE=dist\CheatGuardCentral-Setup.exe"
 
@@ -108,7 +108,7 @@ jpackage ^
 if errorlevel 1 (echo ERROR: jpackage failed.& exit /b 1)
 
 echo.
-move /y "dist\CheatGuardCentral-1.0.exe" "%SETUP_EXE%" >nul
+move /y "dist\CheatGuardCentral-%APP_VERSION%.exe" "%SETUP_EXE%" >nul
 if exist "%SETUP_EXE%" (
   echo ============================================================
   echo  BUILD SUCCESSFUL
