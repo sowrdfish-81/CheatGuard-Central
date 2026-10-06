@@ -379,6 +379,19 @@ public class AppConfig {
         save();
     }
 
+    /** The exam code typed on the setup card (Zoom-style join code for monitoring). */
+    public synchronized String getExamCode() {
+        String v = configValues.get("central.examcode");
+        return v == null ? "" : v.trim();
+    }
+
+    public synchronized void setExamCode(String code) {
+        String v = code == null ? "" : code.trim();
+        if (v.isEmpty()) configValues.remove("central.examcode");
+        else configValues.put("central.examcode", v);
+        save();
+    }
+
     /** Generic marker/flag storage (e.g. toolchain scan version). */
     public synchronized String getConfigValue(String key) {
         return configValues.get(key);

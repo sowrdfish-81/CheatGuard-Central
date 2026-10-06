@@ -376,6 +376,8 @@ public class Main {
         JTextField courseField = UITheme.field("e.g. CSE-3202");
         JTextField studentField = UITheme.field("e.g. 2021831045");
         JTextField centralField = UITheme.field("Optional - sir-er PC er IP (e.g. 192.168.0.50)");
+        JTextField codeField = UITheme.field("Exam code sir theke (e.g. 482913)");
+        codeField.setMaximumSize(new Dimension(400, 42));
         courseField.setMaximumSize(new Dimension(400, 42));
         studentField.setMaximumSize(new Dimension(400, 42));
         centralField.setMaximumSize(new Dimension(400, 42));
@@ -404,6 +406,7 @@ public class Main {
                 if (choice != JOptionPane.YES_OPTION) return;
             }
             AppConfig.getInstance().setCentralHost(centralField.getText().trim());
+            AppConfig.getInstance().setExamCode(codeField.getText().trim());
             startExam(course, student);
         };
         startBtn.addActionListener(e -> doStart.run());
@@ -421,7 +424,9 @@ public class Main {
         card.add(Box.createVerticalStrut(14));
         card.add(labelled("Student ID", studentField));
         card.add(Box.createVerticalStrut(14));
-        card.add(labelled("Invigilator PC IP - optional, for central monitoring", centralField));
+        card.add(labelled("Exam code - sir theke nite hobe (central monitoring)", codeField));
+        card.add(Box.createVerticalStrut(10));
+        card.add(labelled("Sir-er PC IP - optional (auto-discover fail korle)", centralField));
         card.add(Box.createVerticalStrut(24));
         card.add(startBtn);
         card.add(Box.createVerticalStrut(10));
@@ -452,7 +457,8 @@ public class Main {
         // first 30 seconds are the machine settling down, not the student.
         long[] pills = new long[2]; // red, blocked
         com.cheatguard.watchdog.CentralReporter reporter = new com.cheatguard.watchdog.CentralReporter(
-                activeSession, AppConfig.getInstance().getCentralHost());
+                activeSession, AppConfig.getInstance().getCentralHost(),
+                AppConfig.getInstance().getExamCode());
         centralReporter = reporter;
         reporter.start();
         ViolationListener liveListener = violation -> SwingUtilities.invokeLater(() -> {

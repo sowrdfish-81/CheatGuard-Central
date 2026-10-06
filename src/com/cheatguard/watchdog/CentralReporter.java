@@ -45,17 +45,20 @@ public final class CentralReporter {
     private volatile String centralHost = "";
     /** Manually typed invigilator IP - wins over the beacon while set. */
     private final String manualHost;
+    /** The exam code sir shared; only a beacon/monitor with this code is joined. */
+    private final String examCode;
     private volatile boolean running;
     private Thread worker;
     private Thread beaconListener;
 
     public CentralReporter(ExamSession session) {
-        this(session, "");
+        this(session, "", "");
     }
 
-    public CentralReporter(ExamSession session, String manualHost) {
+    public CentralReporter(ExamSession session, String manualHost, String examCode) {
         this.session = session;
         this.manualHost = manualHost == null ? "" : manualHost.trim();
+        this.examCode = examCode == null ? "" : examCode.trim();
         if (!this.manualHost.isEmpty()) {
             centralHost = this.manualHost;
             persistCentralIp(this.manualHost);
@@ -140,8 +143,21 @@ public final class CentralReporter {
                     String text = new String(packet.getData(), packet.getOffset(), packet.getLength(),
                             StandardCharsets.UTF_8).trim();
                     if (text.startsWith(BEACON_PREFIX)) {
-                        String addr = text.substring(BEACON_PREFIX.length()).trim();
-                        if (!addr.isEmpty() && manualHost.isEmpty()) {
+                        String rest = text.substring(BEACON_PREFIX.length()).trim();
+                        String addr = rest;
+                        String beaconCode = "";
+                        int sep = rest.indexOf("@@@");
+                        if (sep >= 0) {
+                            addr = rest.substring(0, sep).trim();
+                            beaconCode = rest.substring(sep + 3).trim();
+                        }
+                        if (!examCode.isEmpty()) {
+                            // join only the monitor whose exam code matches ours
+                            if (beaconCode.equalsIgnoreCase(examCode) && !addr.isEmpty()) {
+                                centralHost = addr;
+                                persistCentralIp(addr);
+                            }
+                        } else if (!addr.isEmpty() && manualHost.isEmpty()) {
                             // a manually typed IP is intentional and wins over beacons
                             centralHost = addr;
                             // the helper's firewall rule allows this IP on TCP 47821
@@ -169,7 +185,7 @@ public final class CentralReporter {
                 OutputStream out = socket.getOutputStream();
                 // announce who we are as the very first line
                 String hello = "HELLO@@@" + hostPc + "@@@" + session.getStudentId()
-                        + "@@@" + session.getCourseCode();
+                        + "@@@" + session.getCourseCode() + "@@@" + examCode;
                 out.write((hello + "\n").getBytes(StandardCharsets.UTF_8));
                 while (running) {
                     synchronized (queue) {

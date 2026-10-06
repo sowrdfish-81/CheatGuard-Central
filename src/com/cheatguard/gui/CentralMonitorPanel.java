@@ -49,6 +49,7 @@ public class CentralMonitorPanel extends JPanel {
     private final CopyOnWriteArrayList<java.io.Closeable> closables = new CopyOnWriteArrayList<>();
 
     private volatile boolean running;
+    private volatile String examCode = "";
     private ServerSocket serverSocket;
     private Thread acceptThread;
     private Thread beaconThread;
@@ -93,14 +94,31 @@ public class CentralMonitorPanel extends JPanel {
         scroll.getViewport().setBackground(UITheme.BG_INPUT);
 
         // controls + status
+        JTextField codeField = new JTextField();
+        codeField.setFont(UITheme.FONT_SECTION);
+        codeField.setMaximumSize(new Dimension(160, 34));
+        codeField.setText(randomCode());
+        JButton shuffle = UITheme.ghost("New code");
+        shuffle.addActionListener(e -> codeField.setText(randomCode()));
         JButton start = UITheme.primary("Start monitor");
-        start.addActionListener(e -> startMonitor());
+        start.addActionListener(e -> {
+            String code = codeField.getText().trim();
+            if (!code.matches("[A-Za-z0-9]{3,12}")) {
+                statusLabel.setText("The exam code needs 3-12 letters or numbers.");
+                statusLabel.setForeground(UITheme.ACCENT_RED);
+                return;
+            }
+            startMonitor(code);
+        });
         JButton stop = UITheme.ghost("Stop");
         stop.addActionListener(e -> stopMonitor());
         JButton clear = UITheme.ghost("Clear rows");
         clear.addActionListener(e -> model.setRowCount(0));
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         controls.setOpaque(false);
+        controls.add(new JLabel("Exam code:"));
+        controls.add(codeField);
+        controls.add(shuffle);
         controls.add(start);
         controls.add(stop);
         controls.add(clear);
@@ -124,8 +142,9 @@ public class CentralMonitorPanel extends JPanel {
 
     // ------------------------------------------------------------- lifecycle --
 
-    private synchronized void startMonitor() {
+    private synchronized void startMonitor(String code) {
         if (running) return;
+        examCode = code;
         try {
             openFirewall();
             serverSocket = new ServerSocket();
@@ -139,8 +158,8 @@ public class CentralMonitorPanel extends JPanel {
             beaconThread = new Thread(this::beaconLoop, "CheatGuard-CentralBeaconSrv");
             beaconThread.setDaemon(true);
             beaconThread.start();
-            statusLabel.setText("Listening on port " + CENTRAL_TCP_PORT
-                    + " - student PCs on this network will connect automatically.");
+            statusLabel.setText("Exam code " + code + " - students type this code to join. Listening on port "
+                    + CENTRAL_TCP_PORT + ".");
             statusLabel.setForeground(UITheme.ACCENT_TEAL);
         } catch (Exception e) {
             statusLabel.setText("Could not start: " + e.getMessage()
@@ -190,7 +209,7 @@ public class CentralMonitorPanel extends JPanel {
                 while ((nl = pending.indexOf("\n")) >= 0) {
                     String line = pending.substring(0, nl).trim();
                     pending.delete(0, nl + 1);
-                    if (!line.isEmpty()) handleLine(line);
+                    if (!line.isEmpty()) handleLine(line, socket);
                 }
             }
         } catch (Exception ignored) {
@@ -199,7 +218,7 @@ public class CentralMonitorPanel extends JPanel {
     }
 
     /** Line format: millis@@@pc@@@student@@@course@@@severity@@@type@@@message@@@display */
-    private void handleLine(String line) {
+    private void handleLine(String line, Socket socket) {
         String[] p = line.split("@@@", 8);
         String time;
         String pc = "PC", student = "—", course = "—", severity = "INFO", event = "";
@@ -217,12 +236,23 @@ public class CentralMonitorPanel extends JPanel {
             String message = p.length >= 8 ? p[7].trim() : p[6].trim();
             event = message.startsWith(type + ":") ? message : type + ": " + message;
         } else if (p.length >= 4 && "HELLO".equals(p[0])) {
+            String clientCode = p.length >= 5 ? p[4].trim() : "";
+            if (!clientCode.equalsIgnoreCase(examCode)) {
+                // wrong exam code: silently close - not this exam's student
+                try { socket.close(); } catch (Exception ignored) {}
+                final String rejTime = new SimpleDateFormat("HH:mm:ss").format(new Date());
+                SwingUtilities.invokeLater(() -> model.addRow(new Object[]{rejTime, "-", "-", "-",
+                        "NOTICE", "A PC tried to join with a wrong exam code (rejected)"}));
+                writeCsv(rejTime, "-", "-", "-", "NOTICE",
+                        "A PC tried to join with a wrong exam code (rejected)");
+                return;
+            }
             time = new SimpleDateFormat("HH:mm:ss").format(new Date());
             pc = p[1].trim();
             student = p[2].trim();
             course = p[3].trim();
             severity = "INFO";
-            event = "Session connected to central monitor";
+            event = "Session joined with exam code " + examCode;
         } else {
             return;
         }
@@ -243,7 +273,7 @@ public class CentralMonitorPanel extends JPanel {
 
     /** Announce this machine on every LAN interface so student PCs find it. */
     private void beaconLoop() {
-        byte[] payload = (BEACON_PREFIX + firstLanIp()).getBytes(StandardCharsets.UTF_8);
+        byte[] payload = (BEACON_PREFIX + firstLanIp() + "@@@" + examCode).getBytes(StandardCharsets.UTF_8);
         while (running) {
             try (DatagramSocket socket = new DatagramSocket()) {
                 socket.setBroadcast(true);
@@ -310,6 +340,13 @@ public class CentralMonitorPanel extends JPanel {
         runQuiet("netsh", "advfirewall", "firewall", "add", "rule",
                 "name=CheatGuard Central Discovery", "dir=in", "action=allow",
                 "protocol=UDP", "localport=" + DISCOVERY_UDP_PORT);
+    }
+
+    private static String randomCode() {
+        StringBuilder sb = new StringBuilder();
+        java.util.Random r = new java.util.Random();
+        for (int i = 0; i < 6; i++) sb.append("0123456789".charAt(r.nextInt(10)));
+        return sb.toString();
     }
 
     private static void runQuiet(String... command) {
