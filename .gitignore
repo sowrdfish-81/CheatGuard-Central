@@ -2,6 +2,7 @@
 bin/
 build/
 dist/
+tools/wix/
 testbin/
 *.log
 

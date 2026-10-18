@@ -11,7 +11,7 @@ rem  own Java runtime - nothing else to build or download.
 rem ============================================================
 
 rem Internal MSI version only (upgrade machinery); the shipped file carries no version.
-set "APP_VERSION=1.7"
+set "APP_VERSION=1.8"
 set "APP_NAME=CheatGuardCentral"
 set "SETUP_EXE=dist\CheatGuardCentral-Setup.exe"
 set "CHECKSUM_FILE=%SETUP_EXE%.sha256"
@@ -32,6 +32,7 @@ set "WIX_FOUND="
 where candle.exe >nul 2>nul && where light.exe >nul 2>nul && set "WIX_FOUND=1"
 if not defined WIX_FOUND (
   for %%D in (
+    "%~dp0tools\wix"
     "%~dp0..\tools\wix"
     "%ProgramFiles(x86)%\WiX Toolset v3.14\bin"
     "%ProgramFiles(x86)%\WiX Toolset v3.11\bin"
@@ -115,7 +116,8 @@ if exist "%SETUP_EXE%" (
   echo  BUILD SUCCESSFUL
   echo  Installer: %SETUP_EXE%
   for %%A in ("%SETUP_EXE%") do echo  Size: %%~zA bytes
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$hash=(Get-FileHash -Algorithm SHA256 -LiteralPath '%SETUP_EXE%').Hash.ToLower(); [IO.File]::WriteAllText('%CHECKSUM_FILE%', ($hash + '  ' + [IO.Path]::GetFileName('%SETUP_EXE%') + [Environment]::NewLine), [Text.Encoding]::ASCII)"
+  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$bytes=[IO.File]::ReadAllBytes('%SETUP_EXE%'); $hash=(([Security.Cryptography.SHA256]::Create().ComputeHash($bytes) | ForEach-Object ToString x2) -join '').ToLower(); [IO.File]::WriteAllText('%CHECKSUM_FILE%', ($hash + '  ' + [IO.Path]::GetFileName('%SETUP_EXE%') + [Environment]::NewLine), [Text.Encoding]::ASCII)"
+  if errorlevel 1 (echo ERROR: checksum generation failed.& exit /b 1)
   if not exist "%CHECKSUM_FILE%" (echo ERROR: checksum asset was not produced.& exit /b 1)
   echo  Checksum: %CHECKSUM_FILE%
   echo  This ONE file contains the central monitor + Java runtime.
