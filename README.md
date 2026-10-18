@@ -1,201 +1,108 @@
 # CheatGuard Central
 
-Java desktop app that locks down a student's PC during online exams — kills unauthorized
-processes, restricts browser access to whitelisted sites, flags USB device insertions in
-real time, and seals an undeletable audit log for every session.
+CheatGuard Central is a Windows desktop application for supervised online exams. It provides process control, website allowlisting, file-access restrictions, device monitoring, protected audit logs, and authenticated central monitoring.
 
-## What ships
+## Current release
 
-- **One installer, everything inside** — `dist\CheatGuard-Setup.exe` bundles the app AND
-  its own trimmed Java runtime. Double-click → install → done. No JDK, no JAR, no
-  separate setup step.
-- **DNS-layer website allowlist** — an elevated helper points every adapter (IPv4 *and*
-  IPv6) at a local filter; only admin-approved domains resolve. Browser DoH is forced
-  off and re-blocked at the firewall. New adapters plugged in mid-exam are captured too.
-- **Process watchdog** — when a session starts, every app that is already
-  running is closed FIRST — including the ALLOWED ones, so no folder, file or
-  tab opened before the exam survives inside them — and the invigilator reopens
-  the needed apps from the monitor screen, which launches them ON the exam
-  folder. Only then does monitoring and the alert counter begin. Windows shell
-  components are never touched.
-- **No websites are allowed by default** — a fresh install starts with an EMPTY
-  website list; the invigilator adds the exam sites one by one (google.com,
-  accounts.google.com and gmail.com also stay out of any old config — the
-  subdomain rule would otherwise allow Google sign-in through google.com).
-- **Pick allowed apps by their real names** — the settings screen has a search
-  bar over the apps actually installed on the PC (from the Start Menu): type a
-  few letters, click the app, and its program file and real display name are
-  added. Lists and logs show "Visual Studio Code", never "code.exe". Private /
-  incognito windows get no bypass — the DNS filter, DoH-off policies and
-  firewall apply to the whole machine, whatever the browser mode is.
-- **Allowed apps stay inside the exam folder** — their window titles are
-  watched: an allowed app showing a file outside the exam folder is closed and
-  logged as a red alert. Editor tab titles must carry the exam folder's name
-  (a foreign folder is a red alert), and permitted interpreters (python) whose
-  command line names a file outside the exam folder are closed. Allowed apps
-  also launch in the STUDENT's session (via an Explorer broker), so the file
-  walls below apply to them too. The Windows recent-files lists (Start menu,
-  jump lists, Open-dialog recents) are wiped at session start, so nothing
-  pre-exam can be reopened in one click.
-- **File walls** — the strongest content protection: during a session the
-  student's account is DENIED read access (NTFS ACLs) to Documents, Downloads,
-  Music, Pictures, Videos, every Desktop item except the exam folder, and every
-  drive that holds neither Windows, the profile nor an approved app. Terminal,
-  editor, anything — opening a pre-exam file anywhere else returns
-  "Access denied". Everything is restored when the session ends.
-- **Readable log — three levels** — `OK` (grey) = routine enforcement such as an app
-  closed at start; `WARN` (yellow) = a website the student tried to open but the block
-  held; `ALERT` (red) = something actually got through: an unapproved folder, a USB
-  device, an app that refused to close. The live header shows the running time, the
-  ALERT count and the BLOCKED count separately.
-- **Coding-test apps built in** — fresh installs (and older configs, once) start
-  with the compilers, terminals and editors a CP contest or lab needs:
-  gcc/g++/MinGW, make/cmake, Java, Python, Node, VS Code, Code::Blocks,
-  cmd/PowerShell and more. Websites are NOT pre-allowed — the invigilator adds
-  the exam sites one by one.
-- **USB / external device monitor** — storage, network adapters and portable devices
-  raise RED alerts the moment they appear.
-- **Sealed audit logs** — new vaults use authenticated AES-256-GCM with a PBKDF2-derived
-  key; older CBC vaults remain readable and are migrated on the next seal. ACL
-  hardening (Administrators own, Users read-only) means
-  ACL hardening (Administrators own, Users read-only) so Explorer cannot delete them.
-  Deletion only from the dashboard, after the admin password + UAC.
-- **No default password** — first run asks for one. PBKDF2-HMAC-SHA256 (210k rounds),
-  machine-bound HMAC, 5-attempt escalating lockout, empty submissions cost nothing.
-- **Clipboard hygiene** — pre-exam clipboard + Win+V history wiped at session start;
-  fully usable during the session; untouched at the end.
-- **Responsive UI** — every slow operation (UAC, sealing, log open/delete) runs on a
-  worker thread; the window never freezes with "Not Responding".
+Version: **1.8**
+Release: [v1.8](https://github.com/sowrdfish-81/CheatGuard-Central/releases/tag/v1.8)
 
-## Build (one command)
+Release assets:
 
+- `CheatGuardCentral-Setup.exe`
+- `CheatGuardCentral-Setup.exe.sha256`
+
+Installer SHA-256:
+
+```text
+0eb9c5d2086390e4acdf79957c5d0e96a7e8ffa3b894838e5551ce684e0654ad
 ```
+
+## Features
+
+- Process monitoring with startup cleanup and unauthorized-process enforcement.
+- DNS-layer website allowlisting with IPv4/IPv6 handling and DoH restrictions.
+- Exam-folder boundaries for supported applications and interpreters.
+- NTFS-based file-access restrictions during an active session.
+- USB, network-adapter, and portable-device monitoring.
+- Protected audit logs with authenticated AES-256-GCM encryption for new vaults.
+- Backward-compatible reading and migration support for legacy vaults.
+- PBKDF2-HMAC-SHA256 administrator credentials with lockout protection.
+- HMAC challenge-response authentication for central monitor events.
+- Proxy, VPN, remote-control, tunnel-port, and raw-egress protections.
+- Recovery support for interrupted sessions and abnormal shutdowns.
+- Non-blocking UI handling for UAC, sealing, diagnostics, and log operations.
+
+## Requirements
+
+- Windows 10 or later.
+- JDK 17 or later for development and packaging.
+- WiX Toolset 3.x for installer packaging. `build-installer.bat` automatically detects a repository-local copy under `tools\wix` or a WiX installation on `PATH`.
+- Administrator privileges for installer execution and protected session operations.
+
+## Build the installer
+
+From the repository root, run:
+
+```bat
 build-installer.bat
 ```
 
-Produces exactly one artifact: `dist\CheatGuardCentral-Setup.exe` (app + bundled runtime).
-Requires JDK 17+ and WiX Toolset 3.x on PATH (local copy is auto-detected from
-`..\tools\wix`).
+The build produces:
 
-## Project layout
-
-```
-src\com\cheatguard\            application source
-  config\                      paths + allowlist persistence
-  core\                        session, log, violation model
-  gui\                         Swing theme + screens (home, setup, monitor, settings, dashboard)
-  security\                    credentials, authenticated vault, log protection
-  watchdog\                    process scanner/controller, DNS server, network lockdown, devices
-resources\network-lockdown.ps1 elevated helper (DNS redirect, DoH off, log ACLs)
-src\...\CentralReporter.java   LAN event reporter for the central monitor
-src\...\CentralMonitorPanel.java invigilator's live multi-PC monitor
-test\CoreFlowTest.java         headless verification (credentials, vault, DNS, scanner)
-test\SecurityUpgradeTest.java  AES-GCM tamper rejection and central HMAC checks
-build-installer.bat            single-command build → one installer exe
+```text
+dist\CheatGuardCentral-Setup.exe
+dist\CheatGuardCentral-Setup.exe.sha256
 ```
 
-## Headless test
+The installer contains the application and its bundled runtime. WiX binaries are build tooling and are intentionally not committed to the repository.
 
-PowerShell:
+## Run the tests
+
+The test suite runs headlessly with an isolated data directory:
 
 ```powershell
 $sources = Get-ChildItem src -Recurse -Filter *.java | ForEach-Object FullName
+New-Item -ItemType Directory -Force bin, testbin | Out-Null
 javac -encoding UTF-8 -d bin $sources
-javac -encoding UTF-8 -cp bin -d testbin test\CoreFlowTest.java
+javac -encoding UTF-8 -cp bin -d testbin test\CoreFlowTest.java test\SecurityUpgradeTest.java test\UpdateCheckerTest.java
 java -Djava.awt.headless=true -Dcheatguard.data.dir="$PWD\test-data" -cp "bin;testbin" CoreFlowTest
+java -Djava.awt.headless=true -Dcheatguard.data.dir="$PWD\test-data" -cp "bin;testbin" SecurityUpgradeTest
+java -Djava.awt.headless=true -Dcheatguard.data.dir="$PWD\test-data" -cp "bin;testbin" UpdateCheckerTest
 ```
 
-All checks pass with an isolated data directory; nothing on the machine is modified.
+The tests cover core session flow, credential persistence, vault encryption and tamper rejection, central-monitor authentication, updater verification, and recovery behavior. Test data is isolated from the user profile.
 
-## Security model
+## Repository layout
 
-Red-teamed and hardened. The threat model is the signed-in student: a standard user
-with full physical access, trying to cheat mid-exam or cover tracks afterwards.
+```text
+src\com\cheatguard\       Application source
+  config\                  Configuration and update handling
+  core\                    Sessions, logs, and violations
+  gui\                     Desktop UI and workflows
+  security\                Credentials, vaults, and integrity controls
+  watchdog\                Process, network, and device enforcement
+resources\                 Elevated PowerShell helpers and resources
+support\                   Recovery and diagnostics utilities
+test\                      Headless verification tests
+build-installer.bat        Installer build and checksum generation
+PROJECT_REPORT.md          Current implementation and verification report
+```
 
-Fixed by elevation + machine data: the app self-elevates at launch (UAC), and all
-sensitive state lives under `C:\ProgramData\CheatGuard` —
-- **stop.marker forgery closed** — the lockdown control directory is Administrators-only
-  while a session runs, so the student cannot silently end the lockdown.
-- **helper swap (admin RCE) closed** — the elevated PowerShell helper is staged where the
-  student cannot rewrite it while the UAC prompt waits.
-- **allowlist / credential tamper closed** — `whitelist.properties` and `admin.cred` are
-  no longer inside the student's own profile.
-- **taskkill immunity** — Windows UIPI blocks every medium-integrity process (Task
-  Manager, cmd) from terminating or writing to the elevated app.
-- **hidden-app watchdog** — new processes without a top-level window (tray apps,
-  headless browsers) that start from student-writable locations are closed and logged.
-- **DNS hardening** — DoT (853) firewalled off, plain 53 to known public resolvers
-  blocked so custom tools cannot query around the filter, upstream replies validated
-  (connected socket + ID + question check) against LAN spoofing, and the filter's own
-  upstreams are kept outside the blocked list.
-- **log integrity** — violation text is newline-sanitized so a crafted process name
-  cannot forge audit lines; new sealed logs use AES-GCM authentication and ACLs.
-- **central monitor authentication** — the LAN feed uses a fresh nonce and HMAC
-  challenge-response; the exam code is no longer sent in plaintext and event lines
-  are ignored until authentication succeeds.
-- **VPN / remote-control sweep** — tunnelling and remote-control clients (OpenVPN,
-  WireGuard, Tailscale, Tor, TeamViewer, AnyDesk, VNC, RDP tools, and more) are closed
-  wherever they are installed, because they reach the Internet without the DNS filter.
-- **Tunnel-port firewall blocks** — during a session the elevated helper blocks the
-  VPN/IPsec/WireGuard ports (UDP 500/4500/1194/51820), PPTP, outbound RDP, VNC and
-  QUIC (HTTP/3), so even hand-rolled tunnelling tools have nowhere to connect.
-- **Egress web lockdown** — the strongest layer: outbound web traffic is default-denied
-  and only the addresses approved domains actually resolve to may connect (the local
-  DNS filter feeds the firewall its allowlist live). This closes raw-IP HTTPS browsing.
-  Before arming, the helper verifies an approved site really is reachable; on an
-  exotic network it rolls itself back and the session continues in DNS-only mode
-  (the log records which mode ran).
-- **Fast user switching disabled** — the "Switch user" entry is hidden for the session
-  (previous value restored at the end), and the log notes how many local accounts exist.
+## Operational workflow
 
-Known boundaries (stated honestly): an HTTPS proxy on a non-standard port or a tunnel
-endpoint shared with an approved CDN IP cannot be told apart without deep packet
-inspection; screen capture and a phone next to the keyboard are physical; an attacker
-with the *local administrator password* can delete the credential store (the app
-detects tampering and forces a visible reset, but a local admin is above client-side
-enforcement); and a cheat file kept entirely inside an app that never shows a path in
-its title bar (for example a note typed into an editor with no file name) is invisible
-to title monitoring — but the file walls close the practical routes: there is no
-pre-exam file left that any app could open.
+1. Install `CheatGuardCentral-Setup.exe` with administrator privileges.
+2. Set the administrator password on first launch.
+3. Configure approved applications and exam websites.
+4. Start a session with the course and student information.
+5. End the session and seal the audit log from the dashboard.
 
-Round-2 hardening (2.2):
-- **Proxy/PAC lockdown** — any user-configured HTTP proxy or PAC URL force-disables
-  during a session (snapshot restored at the end); a proxy would resolve names on its
-  own and skip the DNS filter entirely.
-- **IPv6 leak guard** — if real IPv6 resolvers are configured but `::1` could not be
-  bound, the session refuses to start instead of silently filtering IPv4 only.
-- **Background-watchdog precision** — process identity uses PID + start instant (PID
-  reuse is judged correctly), unattributable processes are re-checked instead of
-  whitelisted, and the student-writable test is inverted: anything outside the Windows
-  directory, Program Files and ProgramData counts as student space (second drives too).
-- **Dashboard password field clears** after every open/delete, so a pre-filled admin
-  password is never left on screen.
-- PowerShell probes run window-hidden (no console flashes at session start), and the
-  setup screen warns loudly before starting a session with no approved websites.
+If a session ends unexpectedly, use the installed recovery utility or relaunch the application as an administrator. Diagnostics are available through the installed `diagnostics.bat` utility.
 
-## Quick start for a team
+## Security boundaries
 
-1. Copy `CheatGuardCentral-Setup.exe` to the invigilator machine and double-click it (admin rights).
-2. First launch: set the administrator password. Then open **Allowed apps and
-   websites** and add the exam platform (e.g. `codeforces.com`) and any IDEs.
-3. **Start exam session** — enter course + student ID, approve the administrator
-   prompt, hand the laptop to the student.
-4. **End session and seal log** — the log is sealed, protected, and readable later
-   from **Session dashboard**.
+CheatGuard is designed to enforce policy against a signed-in standard student account. It cannot protect against a person who has the local administrator password, physical access to another device, or a communication path that cannot be distinguished from an approved endpoint. These limitations are documented so deployment decisions remain explicit.
 
-Installed support tools (in the app folder, e.g. `C:\Program Files\CheatGuard`):
+## License
 
-- **emergency-restore.bat** — repairs DNS/firewall after an abnormal ending
-  (power loss, crash). Refuses to run while a session is actually active.
-- **diagnostics.bat** — collects network/DNS state and the recent app log into
-  `Desktop\CheatGuard-Diagnostics.txt` to send to the team.
-
-Diagnostics log: `C:\ProgramData\CheatGuard\logs\cheatguard-<date>.log`.
-
-## Admin workflows
-
-- **Allowed apps and websites** — allowlists for the watchdog and DNS filter.
-- **Session dashboard** — open/delete sealed logs (admin password; delete also asks UAC).
-- **Emergency network restore** — the installer config includes the elevated helper;
-  a stale session is auto-recovered on next launch, or run the helper from
-  `%LOCALAPPDATA%\CheatGuard\network` as administrator.
+No license file is currently published in this repository. All rights are reserved unless a separate license is provided by the project owner.
