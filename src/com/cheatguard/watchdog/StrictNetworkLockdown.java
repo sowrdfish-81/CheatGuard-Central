@@ -124,7 +124,8 @@ public final class StrictNetworkLockdown implements Closeable {
         // helper must leave IPv6 DNS untouched and Windows - which prefers IPv6
         // resolvers - would route lookups around the filter silently. Starting an
         // exam in that state would be theatre, so refuse loudly instead.
-        if (!dnsServer.isIpv6Bound() && ipv6DnsServersPresent()) {
+        Boolean ipv6Configured = ipv6DnsServersPresent();
+        if (!dnsServer.isIpv6Bound() && !Boolean.FALSE.equals(ipv6Configured)) {
             closeServers();
             throw new IOException("This computer has IPv6 DNS servers configured, but the"
                     + " local DNS filter could not bind the IPv6 loopback (::1:"
@@ -141,11 +142,17 @@ public final class StrictNetworkLockdown implements Closeable {
      * IPv6 DNS was ever configured are placeholder metadata, not real resolvers, and
      * are ignored.
      */
-    private boolean ipv6DnsServersPresent() {
+    private Boolean ipv6DnsServersPresent() {
         try {
             String script = "$ErrorActionPreference='SilentlyContinue';"
                     + "Get-DnsClientServerAddress -AddressFamily IPv6 | ForEach-Object { $_.ServerAddresses }";
             Process p = PowerShellUtil.start(script);
+            if (!p.waitFor(8, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return null;
+            }
+            if (p.exitValue() != 0) return null;
+            boolean present = false;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -154,14 +161,14 @@ public final class StrictNetworkLockdown implements Closeable {
                     if (v.isEmpty()) continue;
                     if (v.equals("::1")) continue;
                     if (v.startsWith("fec0:")) continue;
-                    if (v.contains(":")) return true;
+                    if (v.contains(":")) present = true;
                 }
             }
-            if (!p.waitFor(8, TimeUnit.SECONDS)) p.destroyForcibly();
+            return present;
         } catch (Exception ignored) {
-            // probe failure must not block the exam on its own; IPv4 filtering still applies
+            // Unknown must fail closed: IPv4-only filtering is not sufficient proof.
+            return null;
         }
-        return false;
     }
 
     /**

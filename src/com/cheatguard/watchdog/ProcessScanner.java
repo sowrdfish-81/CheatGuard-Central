@@ -8,6 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,10 +41,26 @@ public class ProcessScanner {
                             + FIELD_SEPARATOR + "{3}' -f " +
                             "$_.Id, $_.ProcessName, $_.MainWindowTitle, $_.Path }";
             Process process = PowerShellUtil.start(command);
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
+            ExecutorService readerPool = Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "CheatGuard-ProcessScanReader");
+                t.setDaemon(true);
+                return t;
+            });
+            Future<List<String>> output = readerPool.submit(() -> {
+                List<String> lines = new ArrayList<>();
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) lines.add(line);
+                }
+                return lines;
+            });
+            boolean finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                output.cancel(true);
+            } else {
+                for (String line : output.get(1, TimeUnit.SECONDS)) {
                     String[] parts = line.trim().split(FIELD_SEPARATOR, 4);
                     if (parts.length < 2) continue;
                     try {
@@ -56,9 +75,7 @@ public class ProcessScanner {
                     }
                 }
             }
-            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-            }
+            readerPool.shutdownNow();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {

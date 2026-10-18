@@ -3,6 +3,7 @@ package com.cheatguard.watchdog;
 import com.cheatguard.core.AppLog;
 import com.cheatguard.core.ExamSession;
 import com.cheatguard.core.Violation;
+import com.cheatguard.config.AppPaths;
 
 import java.io.File;
 import java.io.OutputStream;
@@ -45,6 +46,7 @@ public final class CentralReporter {
     /** The exam code sir shared; the monitor rejects connections with other codes. */
     private final String examCode;
     private volatile boolean running;
+    private volatile boolean stopping;
     private Thread worker;
 
     public CentralReporter(ExamSession session) {
@@ -70,6 +72,7 @@ public final class CentralReporter {
     /** Start the sender loop. Best effort, never throws. */
     public void start() {
         if (running) return;
+        stopping = false;
         running = true;
         worker = new Thread(this::sendLoop, "CheatGuard-CentralSender");
         worker.setDaemon(true);
@@ -82,10 +85,12 @@ public final class CentralReporter {
     }
 
     public void stop() {
+        if (!running) return;
         report(new Violation("SESSION_END",
                 "Course=" + session.getCourseCode() + " | StudentID=" + session.getStudentId()
                         + " | PC=" + hostPc,
                 Violation.Severity.INFO));
+        stopping = true;
         running = false;
         if (worker != null) worker.interrupt();
     }
@@ -111,8 +116,7 @@ public final class CentralReporter {
     private static void persistCentralIp(String addr) {
         try {
             java.nio.file.Files.write(
-                    java.nio.file.Paths.get(System.getenv("ProgramData"),
-                            "CheatGuard", "network", "central-ip.txt"),
+                    new File(AppPaths.getNetworkDirectory(), "central-ip.txt").toPath(),
                     addr.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
         }
@@ -125,9 +129,9 @@ public final class CentralReporter {
     /** Connect/reconnect to the central monitor and drain the queue. */
     private void sendLoop() {
         List<String> batch = new ArrayList<>();
-        while (running) {
+        while (running || stopping) {
             String host = centralHost;
-            if (host.isEmpty()) { sleepQuiet(1000); continue; }
+            if (host.isEmpty()) break;
             try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(host, CENTRAL_TCP_PORT), 3000);
                 OutputStream out = socket.getOutputStream();
@@ -135,7 +139,7 @@ public final class CentralReporter {
                 String hello = "HELLO@@@" + hostPc + "@@@" + session.getStudentId()
                         + "@@@" + session.getCourseCode() + "@@@" + examCode;
                 out.write((hello + "\n").getBytes(StandardCharsets.UTF_8));
-                while (running) {
+                while (running || hasQueuedEvents()) {
                     synchronized (queue) {
                         batch.clear();
                         while (!queue.isEmpty() && batch.size() < 50) batch.addLast(queue.pollFirst());
@@ -147,10 +151,19 @@ public final class CentralReporter {
                     if (batch.isEmpty()) sleepQuiet(700);
                 }
                 out.flush();
+                stopping = false;
             } catch (Exception e) {
                 // monitor down or lockdown blocking: retry after a pause
+                if (stopping) break;
                 sleepQuiet(2000);
             }
+        }
+        stopping = false;
+    }
+
+    private boolean hasQueuedEvents() {
+        synchronized (queue) {
+            return !queue.isEmpty();
         }
     }
 

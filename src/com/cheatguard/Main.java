@@ -525,6 +525,9 @@ public class Main {
                     replaceCard(CARD_MONITOR, buildMonitorCard(session, liveLog, alertPill, blockedPill, false));
                     showCard(CARD_MONITOR);
                 } else {
+                    try { reporter.stop(); } catch (Exception ignored) {}
+                    try { finalLockdown.stopAndRestore(); } catch (Exception ignored) {}
+                    try { activeSecurityVault.abortProtection(); } catch (Exception ignored) {}
                     showLockdownFailure(finalLockdown.getLastError());
                     activeSession = null;
                     activeSecurityVault = null;
@@ -792,7 +795,7 @@ public class Main {
                     if (dr.exists()) {
                         String detail = new String(java.nio.file.Files.readAllBytes(dr.toPath()),
                                 java.nio.charset.StandardCharsets.UTF_8).trim();
-                        if (!detail.isBlank()) summary +=summary += "\n\nDevice recovery check:\n" + detail;
+                        if (!detail.isBlank()) summary += "\n\nDevice recovery check:\n" + detail;
                     }
                 } catch (Exception ignored) {
                 }
@@ -834,7 +837,9 @@ public class Main {
             // extra UAC prompt is needed. Only then restore the network state.
             File vault = new File(sessionFile.getParent(),
                     sessionFile.getName().replace(".dat", ".vault"));
-            LogProtection.protectViaHelper(List.of(vault, new File(vault.getAbsolutePath() + ".sig")));
+            if (!LogProtection.protectViaHelper(List.of(vault, new File(vault.getAbsolutePath() + ".sig")))) {
+                throw new IllegalStateException("Windows did not confirm protection of the sealed log.");
+            }
             return true;
         } catch (Exception ex) {
             SwingUtilities.invokeLater(() ->

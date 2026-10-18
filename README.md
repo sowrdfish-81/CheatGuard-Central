@@ -1,4 +1,4 @@
-# CheatGuard
+# CheatGuard Central
 
 Java desktop app that locks down a student's PC during online exams — kills unauthorized
 processes, restricts browser access to whitelisted sites, flags USB device insertions in
@@ -71,7 +71,7 @@ real time, and seals an undeletable audit log for every session.
 build-installer.bat
 ```
 
-Produces exactly one artifact: `dist\CheatGuard-Setup.exe` (app + bundled runtime).
+Produces exactly one artifact: `dist\CheatGuardCentral-Setup.exe` (app + bundled runtime).
 Requires JDK 17+ and WiX Toolset 3.x on PATH (local copy is auto-detected from
 `..\tools\wix`).
 
@@ -85,16 +85,21 @@ src\com\cheatguard\            application source
   security\                    credentials, vault (AES+signature), log protection
   watchdog\                    process scanner/controller, DNS server, network lockdown, devices
 resources\network-lockdown.ps1 elevated helper (DNS redirect, DoH off, log ACLs)
+src\...\CentralReporter.java   LAN event reporter for the central monitor
+src\...\CentralMonitorPanel.java invigilator's live multi-PC monitor
 test\CoreFlowTest.java         headless verification (credentials, vault, DNS, scanner)
 build-installer.bat            single-command build → one installer exe
 ```
 
 ## Headless test
 
-```
-javac -encoding UTF-8 -d bin @sources.txt
+PowerShell:
+
+```powershell
+$sources = Get-ChildItem src -Recurse -Filter *.java | ForEach-Object FullName
+javac -encoding UTF-8 -d bin $sources
 javac -encoding UTF-8 -cp bin -d testbin test\CoreFlowTest.java
-java -cp "bin;testbin" CoreFlowTest
+java -Djava.awt.headless=true -Dcheatguard.data.dir="$PWD\test-data" -cp "bin;testbin" CoreFlowTest
 ```
 
 All checks pass with an isolated data directory; nothing on the machine is modified.
@@ -164,7 +169,7 @@ Round-2 hardening (2.2):
 
 ## Quick start for a team
 
-1. Copy `CheatGuard-Setup.exe` to the exam machine and double-click it (admin rights).
+1. Copy `CheatGuardCentral-Setup.exe` to the invigilator machine and double-click it (admin rights).
 2. First launch: set the administrator password. Then open **Allowed apps and
    websites** and add the exam platform (e.g. `codeforces.com`) and any IDEs.
 3. **Start exam session** — enter course + student ID, approve the administrator

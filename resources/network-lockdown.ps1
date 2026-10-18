@@ -320,7 +320,14 @@ function Handle-ProtectRequest {
             try {
                 $full = [System.IO.Path]::GetFullPath($path).TrimEnd('\')
                 foreach ($root in $allowedRoots) {
-                    if ($root -and $full.StartsWith($root.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) { $ok = $true; break }
+                    if ($root) {
+                        $rootFull = [System.IO.Path]::GetFullPath($root).TrimEnd('\')
+                        $isRootOrChild = $full.Equals($rootFull, [System.StringComparison]::OrdinalIgnoreCase) -or
+                                $full.StartsWith($rootFull + '\', [System.StringComparison]::OrdinalIgnoreCase)
+                        if ($isRootOrChild) {
+                            $ok = $true; break
+                        }
+                    }
                 }
             } catch { $ok = $false }
             if (-not $ok) { continue }
@@ -819,7 +826,7 @@ if ($FailSafeCheck) {
         # session helper is alive. The session helper is the invocation WITH
         # -Config; other -FailSafeCheck instances must not see each other as a
         # live helper, or two concurrent checks would mutually skip forever.
-        $appAlive = @(Get-Process -Name 'CheatGuard' -ErrorAction SilentlyContinue).Count -gt 0
+        $appAlive = @(Get-Process -Name 'CheatGuardCentral','CheatGuard' -ErrorAction SilentlyContinue).Count -gt 0
         $helperAlive = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -match 'network-lockdown\.ps1' `
                            -and $_.CommandLine -match '-Config' `

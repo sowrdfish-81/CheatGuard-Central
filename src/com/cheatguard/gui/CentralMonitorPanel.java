@@ -21,7 +21,9 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.security.SecureRandom;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.security.MessageDigest;
 
 /**
  * The invigilator's central screen, organised the way an invigilator thinks:
@@ -36,6 +38,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class CentralMonitorPanel extends JPanel {
 
     private static final int CENTRAL_TCP_PORT = 47821;
+    private static final String FIREWALL_RULE_NAME = "CheatGuard Central Monitor";
+    private static final int MAX_PENDING_BYTES = 128 * 1024;
+    private static final int MAX_STUDENTS = 500;
+    private static final int MAX_EVENTS_PER_STUDENT = 2000;
 
     /** One exam PC + student and everything they did. */
     private static final class StudentRecord {
@@ -86,6 +92,7 @@ public class CentralMonitorPanel extends JPanel {
     private ServerSocket serverSocket;
     private Thread acceptThread;
     private volatile String examCode = "";
+    private volatile boolean firewallRuleAdded;
     private BufferedWriter csvWriter;
 
     private JPanel centerHost;
@@ -334,6 +341,7 @@ public class CentralMonitorPanel extends JPanel {
         closables.clear();
         try { if (csvWriter != null) csvWriter.close(); } catch (Exception ignored) {}
         csvWriter = null;
+        closeFirewall();
         statusLabel.setText("Monitor stopped.");
         statusLabel.setForeground(UITheme.TEXT_MUTED);
     }
@@ -359,14 +367,16 @@ public class CentralMonitorPanel extends JPanel {
         try (socket; InputStream in = socket.getInputStream()) {
             byte[] buf = new byte[8192];
             StringBuilder pending = new StringBuilder();
+            ConnectionState connection = new ConnectionState();
             int read;
             while (running && (read = in.read(buf)) != -1) {
                 pending.append(new String(buf, 0, read, StandardCharsets.UTF_8));
+                if (pending.length() > MAX_PENDING_BYTES) return;
                 int nl;
                 while ((nl = pending.indexOf("\n")) >= 0) {
                     String line = pending.substring(0, nl).trim();
                     pending.delete(0, nl + 1);
-                    if (!line.isEmpty()) handleLine(line, socket);
+                    if (!line.isEmpty()) handleLine(line, socket, connection);
                 }
             }
         } catch (Exception ignored) {
@@ -375,7 +385,7 @@ public class CentralMonitorPanel extends JPanel {
     }
 
     /** Line format: millis@@@pc@@@student@@@course@@@severity@@@type@@@message@@@display */
-    private void handleLine(String line, Socket socket) {
+    private void handleLine(String line, Socket socket, ConnectionState connection) {
         String[] p = line.split("@@@", 8);
         String time;
         String pc;
@@ -384,6 +394,7 @@ public class CentralMonitorPanel extends JPanel {
         String severity;
         String event;
         if (p.length >= 7 && !"HELLO".equals(p[0])) {
+            if (!connection.authenticated) return;
             try {
                 time = new SimpleDateFormat("HH:mm:ss").format(new Date(Long.parseLong(p[0])));
             } catch (Exception e) {
@@ -398,7 +409,9 @@ public class CentralMonitorPanel extends JPanel {
             event = message.startsWith(type + ":") ? message : type + ": " + message;
         } else if (p.length >= 4 && "HELLO".equals(p[0])) {
             String clientCode = p.length >= 5 ? p[4].trim() : "";
-            if (!clientCode.equalsIgnoreCase(examCode)) {
+            if (!MessageDigest.isEqual(clientCode.toUpperCase(java.util.Locale.ROOT)
+                    .getBytes(StandardCharsets.UTF_8),
+                    examCode.toUpperCase(java.util.Locale.ROOT).getBytes(StandardCharsets.UTF_8))) {
                 // wrong exam code: silently close - not this exam's student
                 try { socket.close(); } catch (Exception ignored) {}
                 final String rejTime = new SimpleDateFormat("HH:mm:ss").format(new Date());
@@ -410,6 +423,7 @@ public class CentralMonitorPanel extends JPanel {
                         "A PC tried to join with a wrong exam code (rejected)");
                 return;
             }
+            connection.authenticated = true;
             time = new SimpleDateFormat("HH:mm:ss").format(new Date());
             pc = p[1].trim();
             student = p[2].trim();
@@ -425,6 +439,7 @@ public class CentralMonitorPanel extends JPanel {
         synchronized (rec) {
             if (!"—".equals(student)) rec.student = student;
             if (!"—".equals(course)) rec.course = course;
+            if (rec.events.size() >= MAX_EVENTS_PER_STUDENT) rec.events.remove(0);
             rec.events.add(new String[]{time, rowSeverity(severity, red), event});
             rec.lastActivity = System.currentTimeMillis();
             if (red) {
@@ -440,6 +455,7 @@ public class CentralMonitorPanel extends JPanel {
             if (showingDetail && detailStudent != null
                     && fKey.equals(keyOf(detailStudent.pc, detailStudent.student))) {
                 eventModel.addRow(new Object[]{fTime, fSev, fEvent});
+                if (eventModel.getRowCount() > MAX_EVENTS_PER_STUDENT) eventModel.removeRow(0);
             }
             rebuildStudentTable();
             counters.setText("PCs: " + students.size() + "   Alerts: " + alertCount.get());
@@ -460,6 +476,12 @@ public class CentralMonitorPanel extends JPanel {
         synchronized (students) {
             StudentRecord rec = students.get(key);
             if (rec == null) {
+                if (students.size() >= MAX_STUDENTS) {
+                    String oldest = students.entrySet().stream()
+                            .min(Map.Entry.comparingByValue((a, b) -> Long.compare(a.lastActivity, b.lastActivity)))
+                            .map(Map.Entry::getKey).orElse(null);
+                    if (oldest != null) students.remove(oldest);
+                }
                 rec = new StudentRecord(pc);
                 if (!"—".equals(student)) rec.student = student;
                 if (!"—".equals(course)) rec.course = course;
@@ -571,8 +593,16 @@ public class CentralMonitorPanel extends JPanel {
 
     private void openFirewall() {
         runQuiet("netsh", "advfirewall", "firewall", "add", "rule",
-                "name=CheatGuard Central Monitor", "dir=in", "action=allow",
+                "name=" + FIREWALL_RULE_NAME, "dir=in", "action=allow",
                 "protocol=TCP", "localport=" + CENTRAL_TCP_PORT);
+        firewallRuleAdded = true;
+    }
+
+    private void closeFirewall() {
+        if (!firewallRuleAdded) return;
+        runQuiet("netsh", "advfirewall", "firewall", "delete", "rule",
+                "name=" + FIREWALL_RULE_NAME);
+        firewallRuleAdded = false;
     }
 
     private static void runQuiet(String... command) {
@@ -663,9 +693,13 @@ public class CentralMonitorPanel extends JPanel {
 
     private static String randomCode() {
         StringBuilder sb = new StringBuilder();
-        java.util.Random r = new java.util.Random();
+        SecureRandom r = new SecureRandom();
         for (int i = 0; i < 6; i++) sb.append("0123456789".charAt(r.nextInt(10)));
         return sb.toString();
+    }
+
+    private static final class ConnectionState {
+        private boolean authenticated;
     }
 
     private static void sleepQuiet(long ms) {

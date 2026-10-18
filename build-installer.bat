@@ -3,8 +3,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 rem ============================================================
-rem  Cheat.Guard 2.0 - ONE-COMMAND BUILDER
-rem  Produces exactly ONE artifact: dist\CheatGuard-2.0.0.exe
+rem  Cheat.Guard Central - ONE-COMMAND BUILDER
+rem  Produces exactly ONE artifact: dist\CheatGuardCentral-Setup.exe
 rem  A single Windows installer that bundles the app AND its
 rem  own Java runtime - nothing else to build or download.
 rem ============================================================
@@ -114,8 +114,8 @@ if exist "%SETUP_EXE%" (
   echo  BUILD SUCCESSFUL
   echo  Installer: %SETUP_EXE%
   for %%A in ("%SETUP_EXE%") do echo  Size: %%~zA bytes
-  echo  This ONE file contains the app + Java runtime.
-  echo  Double-click it to install Cheat.Guard.
+  echo  This ONE file contains the central monitor + Java runtime.
+  echo  Double-click it to install Cheat.Guard Central.
   echo ============================================================
 ) else (
   echo ERROR: expected installer %SETUP_EXE% was not produced.

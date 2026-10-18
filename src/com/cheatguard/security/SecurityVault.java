@@ -23,6 +23,9 @@ public class SecurityVault {
 
     public boolean beginProtection(File plaintextLogFile) { return lockManager.lockFile(plaintextLogFile); }
 
+    /** Release an in-progress log lock when session startup is rolled back. */
+    public void abortProtection() { lockManager.releaseLock(); }
+
     public void sealVault(File plaintextLogFile, char[] adminPassword) throws Exception {
         lockManager.releaseLock();
         seal(plaintextLogFile, adminPassword);
