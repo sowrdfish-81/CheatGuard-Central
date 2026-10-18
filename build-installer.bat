@@ -5,6 +5,7 @@ cd /d "%~dp0"
 rem ============================================================
 rem  Cheat.Guard Central - ONE-COMMAND BUILDER
 rem  Produces exactly ONE artifact: dist\CheatGuardCentral-Setup.exe
+rem  and its SHA-256 companion asset for verified auto-updates.
 rem  A single Windows installer that bundles the app AND its
 rem  own Java runtime - nothing else to build or download.
 rem ============================================================
@@ -13,6 +14,7 @@ rem Internal MSI version only (upgrade machinery); the shipped file carries no v
 set "APP_VERSION=1.7"
 set "APP_NAME=CheatGuardCentral"
 set "SETUP_EXE=dist\CheatGuardCentral-Setup.exe"
+set "CHECKSUM_FILE=%SETUP_EXE%.sha256"
 
 echo ============================================================
 echo  CheatGuard - single installer builder
@@ -113,6 +115,9 @@ if exist "%SETUP_EXE%" (
   echo  BUILD SUCCESSFUL
   echo  Installer: %SETUP_EXE%
   for %%A in ("%SETUP_EXE%") do echo  Size: %%~zA bytes
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$hash=(Get-FileHash -Algorithm SHA256 -LiteralPath '%SETUP_EXE%').Hash.ToLower(); [IO.File]::WriteAllText('%CHECKSUM_FILE%', ($hash + '  ' + [IO.Path]::GetFileName('%SETUP_EXE%') + [Environment]::NewLine), [Text.Encoding]::ASCII)"
+  if not exist "%CHECKSUM_FILE%" (echo ERROR: checksum asset was not produced.& exit /b 1)
+  echo  Checksum: %CHECKSUM_FILE%
   echo  This ONE file contains the central monitor + Java runtime.
   echo  Double-click it to install Cheat.Guard Central.
   echo ============================================================
