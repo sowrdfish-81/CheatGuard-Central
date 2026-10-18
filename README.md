@@ -55,7 +55,9 @@ real time, and seals an undeletable audit log for every session.
   the exam sites one by one.
 - **USB / external device monitor** — storage, network adapters and portable devices
   raise RED alerts the moment they appear.
-- **Sealed audit logs** — AES-256 with a PBKDF2-derived key, SHA-256 signature, and
+- **Sealed audit logs** — new vaults use authenticated AES-256-GCM with a PBKDF2-derived
+  key; older CBC vaults remain readable and are migrated on the next seal. ACL
+  hardening (Administrators own, Users read-only) means
   ACL hardening (Administrators own, Users read-only) so Explorer cannot delete them.
   Deletion only from the dashboard, after the admin password + UAC.
 - **No default password** — first run asks for one. PBKDF2-HMAC-SHA256 (210k rounds),
@@ -82,12 +84,13 @@ src\com\cheatguard\            application source
   config\                      paths + allowlist persistence
   core\                        session, log, violation model
   gui\                         Swing theme + screens (home, setup, monitor, settings, dashboard)
-  security\                    credentials, vault (AES+signature), log protection
+  security\                    credentials, authenticated vault, log protection
   watchdog\                    process scanner/controller, DNS server, network lockdown, devices
 resources\network-lockdown.ps1 elevated helper (DNS redirect, DoH off, log ACLs)
 src\...\CentralReporter.java   LAN event reporter for the central monitor
 src\...\CentralMonitorPanel.java invigilator's live multi-PC monitor
 test\CoreFlowTest.java         headless verification (credentials, vault, DNS, scanner)
+test\SecurityUpgradeTest.java  AES-GCM tamper rejection and central HMAC checks
 build-installer.bat            single-command build → one installer exe
 ```
 
@@ -126,7 +129,10 @@ sensitive state lives under `C:\ProgramData\CheatGuard` —
   (connected socket + ID + question check) against LAN spoofing, and the filter's own
   upstreams are kept outside the blocked list.
 - **log integrity** — violation text is newline-sanitized so a crafted process name
-  cannot forge audit lines; sealed logs stay AES+SHA-256 protected and ACL-hardened.
+  cannot forge audit lines; new sealed logs use AES-GCM authentication and ACLs.
+- **central monitor authentication** — the LAN feed uses a fresh nonce and HMAC
+  challenge-response; the exam code is no longer sent in plaintext and event lines
+  are ignored until authentication succeeds.
 - **VPN / remote-control sweep** — tunnelling and remote-control clients (OpenVPN,
   WireGuard, Tailscale, Tor, TeamViewer, AnyDesk, VNC, RDP tools, and more) are closed
   wherever they are installed, because they reach the Internet without the DNS filter.

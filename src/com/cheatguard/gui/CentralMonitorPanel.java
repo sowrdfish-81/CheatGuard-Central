@@ -8,6 +8,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
@@ -23,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.security.SecureRandom;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.security.MessageDigest;
+import com.cheatguard.watchdog.CentralAuth;
 
 /**
  * The invigilator's central screen, organised the way an invigilator thinks:
@@ -364,10 +365,14 @@ public class CentralMonitorPanel extends JPanel {
     }
 
     private void readClient(Socket socket) {
-        try (socket; InputStream in = socket.getInputStream()) {
+        try (socket; InputStream in = socket.getInputStream();
+             OutputStream out = socket.getOutputStream()) {
+            String nonce = CentralAuth.newNonce();
+            out.write(("CHALLENGE@@@" + nonce + "\n").getBytes(StandardCharsets.UTF_8));
+            out.flush();
             byte[] buf = new byte[8192];
             StringBuilder pending = new StringBuilder();
-            ConnectionState connection = new ConnectionState();
+            ConnectionState connection = new ConnectionState(nonce);
             int read;
             while (running && (read = in.read(buf)) != -1) {
                 pending.append(new String(buf, 0, read, StandardCharsets.UTF_8));
@@ -393,7 +398,33 @@ public class CentralMonitorPanel extends JPanel {
         String course;
         String severity;
         String event;
-        if (p.length >= 7 && !"HELLO".equals(p[0])) {
+        if ("HELLO".equals(p[0]) && p.length >= 4) {
+            if (connection.helloReceived || connection.authenticated) return;
+            connection.pc = p[1].trim();
+            connection.student = p[2].trim();
+            connection.course = p[3].trim();
+            connection.helloReceived = true;
+            return;
+        } else if ("AUTH".equals(p[0]) && p.length >= 2) {
+            if (!connection.helloReceived || connection.authenticated
+                    || !CentralAuth.constantTimeEquals(
+                    CentralAuth.response(examCode, connection.nonce, connection.pc,
+                            connection.student, connection.course), p[1].trim())) {
+                try { socket.close(); } catch (Exception ignored) {}
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("Rejected an unauthenticated central connection.");
+                    statusLabel.setForeground(UITheme.WARN);
+                });
+                return;
+            }
+            connection.authenticated = true;
+            time = new SimpleDateFormat("HH:mm:ss").format(new Date());
+            pc = connection.pc;
+            student = connection.student;
+            course = connection.course;
+            severity = "INFO";
+            event = "Session joined with authenticated challenge response";
+        } else if (p.length >= 7) {
             if (!connection.authenticated) return;
             try {
                 time = new SimpleDateFormat("HH:mm:ss").format(new Date(Long.parseLong(p[0])));
@@ -407,29 +438,6 @@ public class CentralMonitorPanel extends JPanel {
             String type = p[5].trim();
             String message = p.length >= 8 ? p[7].trim() : p[6].trim();
             event = message.startsWith(type + ":") ? message : type + ": " + message;
-        } else if (p.length >= 4 && "HELLO".equals(p[0])) {
-            String clientCode = p.length >= 5 ? p[4].trim() : "";
-            if (!MessageDigest.isEqual(clientCode.toUpperCase(java.util.Locale.ROOT)
-                    .getBytes(StandardCharsets.UTF_8),
-                    examCode.toUpperCase(java.util.Locale.ROOT).getBytes(StandardCharsets.UTF_8))) {
-                // wrong exam code: silently close - not this exam's student
-                try { socket.close(); } catch (Exception ignored) {}
-                final String rejTime = new SimpleDateFormat("HH:mm:ss").format(new Date());
-                SwingUtilities.invokeLater(() -> {
-                    statusLabel.setText("Rejected a connection with a wrong exam code.");
-                    statusLabel.setForeground(UITheme.WARN);
-                });
-                writeCsv(rejTime, "-", "-", "-", "NOTICE",
-                        "A PC tried to join with a wrong exam code (rejected)");
-                return;
-            }
-            connection.authenticated = true;
-            time = new SimpleDateFormat("HH:mm:ss").format(new Date());
-            pc = p[1].trim();
-            student = p[2].trim();
-            course = p[3].trim();
-            severity = "INFO";
-            event = "Session joined with exam code " + examCode;
         } else {
             return;
         }
@@ -694,12 +702,21 @@ public class CentralMonitorPanel extends JPanel {
     private static String randomCode() {
         StringBuilder sb = new StringBuilder();
         SecureRandom r = new SecureRandom();
-        for (int i = 0; i < 6; i++) sb.append("0123456789".charAt(r.nextInt(10)));
+        for (int i = 0; i < 10; i++) sb.append("0123456789".charAt(r.nextInt(10)));
         return sb.toString();
     }
 
     private static final class ConnectionState {
         private boolean authenticated;
+        private boolean helloReceived;
+        private final String nonce;
+        private String pc = "";
+        private String student = "";
+        private String course = "";
+
+        private ConnectionState(String nonce) {
+            this.nonce = nonce;
+        }
     }
 
     private static void sleepQuiet(long ms) {

@@ -49,7 +49,9 @@ public class SecurityVault {
 
         File vaultFile = new File(plaintextLogFile.getParent(), plaintextLogFile.getName().replace(".dat", ".vault"));
         encryptor.encryptFile(plaintextLogFile, vaultFile, adminPassword);
-        String signature = signer.generateSignature(vaultFile);
+        String signature = AesEncryptor.isAuthenticatedFormat(vaultFile)
+                ? "gcm-v2"
+                : signer.generateSignature(vaultFile);
         File sigFile = new File(vaultFile.getAbsolutePath() + ".sig");
         try (FileWriter fw = new FileWriter(sigFile)) { fw.write(signature); }
 
@@ -73,7 +75,9 @@ public class SecurityVault {
         File sigFile = new File(vaultFile.getAbsolutePath() + ".sig");
         if (!sigFile.exists()) throw new SecurityException("Signature file is missing.");
         String expectedSig = new String(Files.readAllBytes(sigFile.toPath()), StandardCharsets.UTF_8).trim();
-        if (!signer.verify(vaultFile, expectedSig)) {
+        boolean authenticated = "gcm-v2".equals(expectedSig)
+                && AesEncryptor.isAuthenticatedFormat(vaultFile);
+        if (!authenticated && !signer.verify(vaultFile, expectedSig)) {
             throw new SecurityException("WARNING: log signature mismatch; file may have been tampered with.");
         }
         byte[] plain = encryptor.decryptFile(vaultFile, adminPassword);

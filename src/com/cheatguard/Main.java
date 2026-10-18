@@ -1074,7 +1074,7 @@ public class Main {
             try {
                 File target = new File(System.getProperty("java.io.tmpdir"),
                         "CheatGuard-Setup-" + info.version() + ".exe");
-                com.cheatguard.config.UpdateChecker.download(info.downloadUrl(), target, pct ->
+                com.cheatguard.config.UpdateChecker.downloadVerified(info, target, pct ->
                         SwingUtilities.invokeLater(() -> bar.setText(
                                 "Downloading Cheat.Guard v" + info.version() + "... " + pct + "%")));
                 SwingUtilities.invokeLater(() -> {

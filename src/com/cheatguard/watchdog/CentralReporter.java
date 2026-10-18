@@ -6,6 +6,8 @@ import com.cheatguard.core.Violation;
 import com.cheatguard.config.AppPaths;
 
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -135,10 +137,19 @@ public final class CentralReporter {
             try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(host, CENTRAL_TCP_PORT), 3000);
                 OutputStream out = socket.getOutputStream();
-                // announce who we are as the very first line
+                BufferedReader in = new BufferedReader(
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                String challenge = in.readLine();
+                if (challenge == null || !challenge.startsWith("CHALLENGE@@@")) {
+                    throw new java.io.IOException("Central monitor did not issue a challenge");
+                }
+                String nonce = challenge.substring("CHALLENGE@@@".length()).trim();
                 String hello = "HELLO@@@" + hostPc + "@@@" + session.getStudentId()
-                        + "@@@" + session.getCourseCode() + "@@@" + examCode;
-                out.write((hello + "\n").getBytes(StandardCharsets.UTF_8));
+                        + "@@@" + session.getCourseCode();
+                String auth = "AUTH@@@" + CentralAuth.response(examCode, nonce, hostPc,
+                        session.getStudentId(), session.getCourseCode());
+                out.write((hello + "\n" + auth + "\n").getBytes(StandardCharsets.UTF_8));
+                out.flush();
                 while (running || hasQueuedEvents()) {
                     synchronized (queue) {
                         batch.clear();

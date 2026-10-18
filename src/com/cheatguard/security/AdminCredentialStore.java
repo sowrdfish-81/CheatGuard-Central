@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
@@ -103,7 +104,9 @@ public final class AdminCredentialStore {
 
         byte[] candidate = derive(password, record.salt(), record.iterations());
         if (MessageDigest.isEqual(record.hash(), candidate)) {
-            writeQuietly(new Record(record.iterations(), record.salt(), record.hash(), 0, 0L));
+            if (!writeQuietly(new Record(record.iterations(), record.salt(), record.hash(), 0, 0L))) {
+                return Result.storageFailure();
+            }
             return Result.ok();
         }
 
@@ -114,7 +117,9 @@ public final class AdminCredentialStore {
             long factor = 1L << Math.min(failures - MAX_ATTEMPTS, 5);
             lockedUntil = now + Math.min(LOCKOUT_BASE_MS * factor, LOCKOUT_MAX_MS);
         }
-        writeQuietly(new Record(record.iterations(), record.salt(), record.hash(), failures, lockedUntil));
+        if (!writeQuietly(new Record(record.iterations(), record.salt(), record.hash(), failures, lockedUntil))) {
+            return Result.storageFailure();
+        }
         int left = Math.max(0, MAX_ATTEMPTS - failures);
         return lockedUntil > now
                 ? Result.lockedOut(lockedUntil - now)
@@ -127,6 +132,7 @@ public final class AdminCredentialStore {
         static Result wrong(int left) { return new Result(false, true, 0L, left); }
         static Result lockedOut(long ms) { return new Result(false, true, ms, 0); }
         static Result notConfigured() { return new Result(false, false, 0L, MAX_ATTEMPTS); }
+        static Result storageFailure() { return new Result(false, true, LOCKOUT_MAX_MS, 0); }
     }
 
     // ------------------------------------------------------- file read / write
@@ -167,15 +173,30 @@ public final class AdminCredentialStore {
         File parent = file.getParentFile();
         if (parent != null) parent.mkdirs();
         Path path = file.toPath();
-        Files.writeString(path, line, StandardCharsets.UTF_8);
+        Path tmp = path.resolveSibling(file.getName() + ".tmp");
+        Files.writeString(tmp, line, StandardCharsets.UTF_8);
+        try {
+            Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            try {
+                Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException moveFailure) {
+                Files.deleteIfExists(tmp);
+                throw moveFailure;
+            }
+        } catch (IOException moveFailure) {
+            Files.deleteIfExists(tmp);
+            throw moveFailure;
+        }
         hide(file);
     }
 
-    private void writeQuietly(Record r) {
+    private boolean writeQuietly(Record r) {
         try {
             write(r);
+            return true;
         } catch (IOException ignored) {
-            // A read-only credential file must not turn into a crash at the login prompt.
+            return false;
         }
     }
 

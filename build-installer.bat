@@ -31,7 +31,6 @@ where candle.exe >nul 2>nul && where light.exe >nul 2>nul && set "WIX_FOUND=1"
 if not defined WIX_FOUND (
   for %%D in (
     "%~dp0..\tools\wix"
-    "C:\Users\mdroh\.zcode\workspace\default\tools\wix"
     "%ProgramFiles(x86)%\WiX Toolset v3.14\bin"
     "%ProgramFiles(x86)%\WiX Toolset v3.11\bin"
     "%ProgramFiles%\WiX Toolset v3.14\bin"
