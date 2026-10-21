@@ -350,14 +350,19 @@ public class CentralMonitorPanel extends JPanel {
                 statusLabel.setForeground(UITheme.ACCENT_TEAL);
             }
         } catch (Exception e) {
-            statusLabel.setText("Could not start: " + e.getMessage()
+            String detail = e.getMessage() == null ? e.toString() : e.getMessage();
+            stopMonitor(false);
+            statusLabel.setText("Could not start: " + detail
                     + " (port already in use? keystore missing? See docs/CENTRAL_TLS.md)");
             statusLabel.setForeground(UITheme.ACCENT_RED);
-            stopMonitor();
         }
     }
 
     private synchronized void stopMonitor() {
+        stopMonitor(true);
+    }
+
+    private synchronized void stopMonitor(boolean showStatus) {
         running = false;
         codeField.setEnabled(true);
         shuffle.setEnabled(true);
@@ -370,8 +375,10 @@ public class CentralMonitorPanel extends JPanel {
         try { if (csvWriter != null) csvWriter.close(); } catch (Exception ignored) {}
         csvWriter = null;
         closeFirewall();
-        statusLabel.setText("Monitor stopped.");
-        statusLabel.setForeground(UITheme.TEXT_MUTED);
+        if (showStatus) {
+            statusLabel.setText("Monitor stopped.");
+            statusLabel.setForeground(UITheme.TEXT_MUTED);
+        }
     }
 
     // ----------------------------------------------------------- server I/O --
