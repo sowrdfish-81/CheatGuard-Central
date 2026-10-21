@@ -318,6 +318,10 @@ public class CentralMonitorPanel extends JPanel {
         boolean developmentPlaintext = CentralTls.plaintextDevModeEnabled();
         try {
             openFirewall();
+            if (!developmentPlaintext) {
+                statusLabel.setText("Preparing secure monitor certificate...");
+                statusLabel.setForeground(UITheme.TEXT_MUTED);
+            }
             if (developmentPlaintext) {
                 // Explicit development opt-in only; production always uses TLS.
                 serverSocket = new ServerSocket();

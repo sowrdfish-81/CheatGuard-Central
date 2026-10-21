@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -107,6 +108,60 @@ public final class CentralTls {
         return defaultTruststoreFile();
     }
 
+    /** Create the invigilator TLS material on first monitor start. */
+    public static synchronized void ensureServerSetup() throws IOException {
+        if (configuredKeystoreFile().isFile()) return;
+        File dir = configuredKeystoreFile().getParentFile();
+        if (dir == null) throw new IOException("Central TLS config directory is unavailable");
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Could not create " + dir);
+        String password = randomPassword();
+        String san = "SAN=dns:localhost,ip:127.0.0.1";
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress address = addresses.nextElement();
+                    if (address instanceof java.net.Inet4Address) san += ",ip:" + address.getHostAddress();
+                }
+            }
+            File key = configuredKeystoreFile();
+            File trust = configuredTruststoreFile();
+            String keytool = new File(System.getProperty("java.home"), "bin/keytool.exe").getAbsolutePath();
+            if (!new File(keytool).isFile()) keytool = new File(System.getProperty("java.home"), "bin/keytool").getAbsolutePath();
+            runKeytool(keytool, "-genkeypair", "-alias", "central", "-keyalg", "RSA", "-keysize", "2048",
+                    "-validity", "3650", "-dname", "CN=CheatGuard Central Monitor", "-ext", san,
+                    "-keystore", key.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", password, "-keypass", password);
+            File cert = File.createTempFile("cheatguard-central-", ".cer", dir);
+            try {
+                runKeytool(keytool, "-exportcert", "-alias", "central", "-rfc", "-keystore", key.getAbsolutePath(), "-storepass", password, "-file", cert.getAbsolutePath());
+                runKeytool(keytool, "-importcert", "-alias", "central", "-file", cert.getAbsolutePath(), "-keystore", trust.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", DEFAULT_TRUSTSTORE_PASSWORD, "-noprompt");
+            } finally { Files.deleteIfExists(cert.toPath()); }
+            AppConfig.getInstance().setConfigValue(STOREPASS_CONFIG, password);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("TLS setup was interrupted", e);
+        }
+    }
+
+    private static String randomPassword() {
+        byte[] bytes = new byte[18]; new SecureRandom().nextBytes(bytes);
+        StringBuilder out = new StringBuilder();
+        for (byte b : bytes) out.append(String.format("%02x", b));
+        return out.toString();
+    }
+
+    private static void runKeytool(String keytool, String... args) throws IOException, InterruptedException {
+        java.util.ArrayList<String> command = new java.util.ArrayList<>(); command.add(keytool);
+        java.util.Collections.addAll(command, args);
+        Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        if (p.waitFor() != 0) throw new IOException("TLS certificate setup failed: " + output.trim());
+    }
+
     // ----------------------------------------------------------- server ----
 
     /**
@@ -119,6 +174,7 @@ public final class CentralTls {
             throw new IllegalStateException(
                     "TLS was requested but plaintext development mode is enabled");
         }
+        ensureServerSetup();
         File keystoreFile = configuredKeystoreFile();
         if (!keystoreFile.isFile()) {
             throw new IOException("Central monitor keystore not found: " + keystoreFile
