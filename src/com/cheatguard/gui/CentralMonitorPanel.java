@@ -103,6 +103,7 @@ public class CentralMonitorPanel extends JPanel {
     private JButton markCheatBtn;
     private JButton markClearedBtn;
     private final JTextField codeField = new JTextField();
+    private JButton shuffle;
 
     public CentralMonitorPanel(Runnable onBack) {
         setLayout(new BorderLayout(14, 14));
@@ -198,6 +199,7 @@ public class CentralMonitorPanel extends JPanel {
         codeField.setPreferredSize(new Dimension(150, 34));
         codeField.setText(randomCode());
         JButton shuffle = UITheme.ghost("New code");
+        this.shuffle = shuffle;
         shuffle.addActionListener(e -> codeField.setText(randomCode()));
         JButton start = UITheme.primary("Start monitor");
         start.addActionListener(e -> startMonitor());
@@ -326,6 +328,10 @@ public class CentralMonitorPanel extends JPanel {
             }
             openCsv();
             running = true;
+            // The running monitor authenticates against the code captured at start;
+            // editing or shuffling it now would only confuse the session in flight.
+            codeField.setEnabled(false);
+            shuffle.setEnabled(false);
             acceptThread = new Thread(this::acceptLoop, "CheatGuard-CentralAccept");
             acceptThread.setDaemon(true);
             acceptThread.start();
@@ -349,6 +355,8 @@ public class CentralMonitorPanel extends JPanel {
 
     private synchronized void stopMonitor() {
         running = false;
+        codeField.setEnabled(true);
+        shuffle.setEnabled(true);
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
         serverSocket = null;
         for (java.io.Closeable c : closables) {
@@ -644,7 +652,8 @@ public class CentralMonitorPanel extends JPanel {
             File csvFile = new File(dir, "central-log-"
                     + new SimpleDateFormat("yyyyMMdd").format(new Date()) + ".csv");
             csvWriter = new BufferedWriter(new FileWriter(csvFile, true));
-            csvWriter.write("time,pc,student,course,level,event\n");
+            // Append mode: write the header only into a brand-new file, never again.
+            if (csvFile.length() == 0) csvWriter.write("time,pc,student,course,level,event\n");
         } catch (Exception e) {
             csvWriter = null;
         }

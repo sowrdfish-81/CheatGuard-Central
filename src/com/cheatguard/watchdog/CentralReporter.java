@@ -145,6 +145,7 @@ public final class CentralReporter {
         List<String> batch = new ArrayList<>();
         boolean developmentPlaintext = CentralTls.plaintextDevModeEnabled();
         if (developmentPlaintext) CentralTls.warnPlaintextOnce();
+        boolean warnedUnreachable = false;
         while (running || stopping) {
             String host = centralHost;
             if (host.isEmpty()) break;
@@ -185,6 +186,15 @@ public final class CentralReporter {
             } catch (Exception e) {
                 // monitor down, bad TLS certificate, or lockdown blocking: retry
                 if (stopping) break;
+                // A wrong IP or a monitor that never started otherwise looks like a
+                // working session: leave one row in the sealed log so it is visible.
+                if (!warnedUnreachable && !manualHost.isEmpty()) {
+                    warnedUnreachable = true;
+                    session.getLogManager().record(new Violation("CENTRAL_MONITOR_UNREACHABLE",
+                            "Could not reach the invigilator's monitor at " + host
+                                    + " (port " + CENTRAL_TCP_PORT + "). Alerts stay on this PC until it reconnects.",
+                            Violation.Severity.INFO));
+                }
                 sleepQuiet(2000);
             } finally {
                 currentSocket = null;

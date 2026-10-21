@@ -397,6 +397,24 @@ public class Main {
                         "Missing details", JOptionPane.WARNING_MESSAGE);
                 return;
             }
+            String code = codeField.getText().trim();
+            if (!code.matches("[A-Za-z0-9]{3,12}")) {
+                JOptionPane.showMessageDialog(frame,
+                        "The exam code must be 3-12 letters or numbers, exactly as the\n"
+                                + "invigilator reads it from the central monitor. Without the\n"
+                                + "correct code this PC cannot join the monitoring session.",
+                        "Check the exam code", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String host = centralField.getText().trim();
+            if (!host.isEmpty() && !host.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                int choice = JOptionPane.showConfirmDialog(frame,
+                        "\"" + host + "\" does not look like an IP address such as 192.168.0.50.\n"
+                                + "Use the IP shown on the invigilator's monitor screen.\n\n"
+                                + "Continue with this value anyway?",
+                        "Check the invigilator PC IP", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.YES_OPTION) return;
+            }
             if (AppConfig.getInstance().getAllowedSites().isEmpty()) {
                 int choice = JOptionPane.showConfirmDialog(frame,
                         "No approved website has been configured.\n"

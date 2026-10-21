@@ -141,6 +141,53 @@ public class SecurityVault {
         }
     }
 
+    /**
+     * Re-encrypt every sealed vault with a new password, so changing the admin
+     * password never makes past session logs unreadable. Files that cannot be
+     * decrypted with the old password (already re-encrypted, or sealed during an
+     * aborted change) are skipped, not destroyed - the original stays on disk.
+     *
+     * @return the number of vaults converted
+     */
+    public int reencryptVaults(char[] oldPassword, char[] newPassword) throws Exception {
+        File[] vaults = com.cheatguard.config.AppPaths.getVaultDirectory()
+                .listFiles((dir, name) -> name.toLowerCase().endsWith(".vault"));
+        if (vaults == null) return 0;
+        int converted = 0;
+        for (File vault : vaults) {
+            byte[] plain;
+            try {
+                plain = encryptor.decryptFile(vault, oldPassword);
+            } catch (Exception notOldPassword) {
+                continue; // sealed with another password; leave it untouched
+            }
+            File staged = new File(vault.getAbsolutePath() + ".new");
+            try {
+                File plainStaged = File.createTempFile("cg-reseal", ".dat", vault.getParentFile());
+                try {
+                    java.nio.file.Files.write(plainStaged.toPath(), plain);
+                    encryptor.encryptFile(plainStaged, staged, newPassword);
+                } finally {
+                    plainStaged.delete();
+                }
+                if (!vault.delete() || !staged.renameTo(vault)) {
+                    staged.delete();
+                    throw new IllegalStateException("Could not replace vault " + vault.getName());
+                }
+                // The new vault is AES-GCM authenticated; the signature marker must
+                // say so, or a legacy SHA-256 .sig would fail verification on open.
+                File sigFile = new File(vault.getAbsolutePath() + ".sig");
+                try (FileWriter fw = new FileWriter(sigFile)) { fw.write("gcm-v2"); }
+                hideFile(vault);
+                hideFile(sigFile);
+                converted++;
+            } finally {
+                Arrays.fill(plain, (byte) 0);
+            }
+        }
+        return converted;
+    }
+
     private void hideFile(File file) {
         try {
             new ProcessBuilder("attrib", "+h", file.getAbsolutePath()).start().waitFor();

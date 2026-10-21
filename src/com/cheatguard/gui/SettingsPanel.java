@@ -211,6 +211,10 @@ public class SettingsPanel extends JPanel {
         delete.addActionListener(e -> {
             String selected = (String) profileCombo.getSelectedItem();
             if (selected == null) return;
+            int ok = JOptionPane.showConfirmDialog(this,
+                    "Delete the saved profile \"" + selected + "\"?",
+                    "Delete profile", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (ok != JOptionPane.YES_OPTION) return;
             config.deleteProfile(selected);
             profileCombo.removeItem(selected);
         });
@@ -499,15 +503,46 @@ public class SettingsPanel extends JPanel {
                     status.setText("The new passwords do not match.");
                     return;
                 }
-                adminAuth.changePassword(a, b);
-                status.setForeground(UITheme.ACCENT_TEAL);
-                status.setText("Password updated.");
-            } catch (IllegalArgumentException | SecurityException refused) {
-                status.setForeground(UITheme.ACCENT_RED);
-                status.setText(refused.getMessage());
-            } catch (Exception ex) {
-                status.setForeground(UITheme.ACCENT_RED);
-                status.setText("Could not update: " + ex.getMessage());
+                // Re-seal the existing logs with the new password BEFORE the stored
+                // credential changes: after that, the old vaults would be unreadable.
+                apply.setEnabled(false);
+                status.setForeground(UITheme.TEXT_MUTED);
+                status.setText("Verifying and re-sealing saved logs...");
+                final char[] oldPass = a.clone();
+                final char[] newPass = b.clone();
+                new Thread(() -> {
+                    String result;
+                    boolean passwordChanged = false;
+                    try {
+                        // Strength first: converting the vaults and THEN refusing a
+                        // weak password would leave them sealed with an unused key.
+                        com.cheatguard.security.AdminAuth.requireStrength(newPass.clone());
+                        int converted = new com.cheatguard.security.SecurityVault(adminAuth)
+                                .reencryptVaults(oldPass, newPass);
+                        adminAuth.changePassword(oldPass.clone(), newPass.clone());
+                        passwordChanged = true;
+                        result = converted > 0
+                                ? "Password updated. " + converted
+                                        + " saved session log(s) were re-sealed with it."
+                                : "Password updated.";
+                    } catch (Exception refused) {
+                        result = passwordChanged
+                                ? "Password updated, but re-sealing a log failed: "
+                                        + refused.getMessage()
+                                : (refused.getMessage() != null ? refused.getMessage()
+                                        : "The password could not be changed.");
+                    } finally {
+                        Arrays.fill(oldPass, '\0');
+                        Arrays.fill(newPass, '\0');
+                    }
+                    final String message = result;
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        apply.setEnabled(true);
+                        status.setForeground(message.startsWith("Password updated")
+                                ? UITheme.ACCENT_TEAL : UITheme.ACCENT_RED);
+                        status.setText(message);
+                    });
+                }, "CheatGuard-PasswordChange").start();
             } finally {
                 Arrays.fill(a, '\0');
                 Arrays.fill(b, '\0');
