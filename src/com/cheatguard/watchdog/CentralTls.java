@@ -55,6 +55,7 @@ public final class CentralTls {
     public static final String STOREPASS_SYSTEM_PROPERTY = "cheatguard.central.tls.storepass";
     public static final String STOREPASS_ENVIRONMENT = "CHEATGUARD_CENTRAL_TLS_STOREPASS";
     public static final String PLAINTEXT_SYSTEM_PROPERTY = "cheatguard.central.plaintext";
+    private static final String DEFAULT_TRUSTSTORE_PASSWORD = "changeit";
 
     static final int CONNECT_TIMEOUT_MS = 3000;
     static final int HANDSHAKE_TIMEOUT_MS = 15000;
@@ -277,6 +278,9 @@ public final class CentralTls {
         if (value == null || value.isBlank()) {
             value = AppConfig.getInstance().getConfigValue(STOREPASS_CONFIG) == null
                     ? "" : AppConfig.getInstance().getConfigValue(STOREPASS_CONFIG);
+        }
+        if ((value == null || value.isBlank()) && !required) {
+            return DEFAULT_TRUSTSTORE_PASSWORD.toCharArray();
         }
         if ((value == null || value.isBlank()) && required) {
             throw new IllegalStateException("Central TLS store password is not set. Provide "

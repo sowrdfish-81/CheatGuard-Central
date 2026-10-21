@@ -64,7 +64,7 @@ if ($LASTEXITCODE -ne 0) { throw 'keytool -genkeypair failed' }
 if ($LASTEXITCODE -ne 0) { throw 'keytool -exportcert failed' }
 
 & $keytool -importcert -alias central -file $certificate -keystore $truststore `
-    -storetype PKCS12 -storepass $StorePassword -noprompt
+    -storetype PKCS12 -storepass 'changeit' -noprompt
 if ($LASTEXITCODE -ne 0) { throw 'keytool -importcert failed' }
 Remove-Item -Force $certificate -ErrorAction SilentlyContinue
 
