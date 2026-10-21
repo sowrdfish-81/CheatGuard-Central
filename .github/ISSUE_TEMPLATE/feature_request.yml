@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose an improvement to CheatGuard Central.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the exam-hall problem you are trying to solve, not just the
+        implementation you have in mind. Features that would weaken the
+        security model (docs/SECURITY model) will be rejected - suggest the
+        problem in a security advisory instead if you found a gap.
+  - type: dropdown
+    id: perspective
+    attributes:
+      label: Who is this for?
+      options:
+        - Invigilator (central monitor / setup)
+        - Student-facing behavior
+        - Institution / deployment
+        - Developer / testing
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: "What happens today that costs time or lets something slip?"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints acknowledgement
+      options:
+        - label: This feature does not require disabling certificate validation, plaintext transport in production, or any other security weakening
+          required: true

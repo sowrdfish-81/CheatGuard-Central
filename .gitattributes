@@ -1,0 +1,21 @@
+# Normalize text files in the repository; working-tree endings per platform.
+* text=auto
+
+# Windows-only files must always have CRLF, even on a Linux checkout.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Sources and docs: LF everywhere.
+*.java text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.xml text eol=lf
+*.properties text eol=lf
+
+# Binary assets.
+*.png binary
+*.ico binary
+*.exe binary
+*.p12 binary
+*.zip binary

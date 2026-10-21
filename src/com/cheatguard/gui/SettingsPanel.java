@@ -117,6 +117,11 @@ public class SettingsPanel extends JPanel {
                     try {
                         new ProcessBuilder(target.getAbsolutePath(), "/quiet", "/norestart").start();
                     } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(this,
+                                "The update was downloaded but the installer could not be started: "
+                                        + ex.getMessage()
+                                        + "\nRun it manually from: " + target.getAbsolutePath(),
+                                "Update failed", JOptionPane.ERROR_MESSAGE);
                         setEnabled(true);
                         return;
                     }

@@ -58,6 +58,15 @@ public class SecurityVault {
         if (!plaintextLogFile.delete()) plaintextLogFile.deleteOnExit();
         hideFile(vaultFile);
         hideFile(sigFile);
+        // Off-machine insurance: copy the sealed (still encrypted) vault to the
+        // backup directory. Failures are logged, never thrown - the seal itself
+        // has already succeeded and an exam must not stall on a backup.
+        try {
+            VaultBackupManager.createDefault().backupVault(vaultFile);
+        } catch (Exception backupFailure) {
+            com.cheatguard.core.AppLog.warn("Vault backup after seal failed: "
+                    + backupFailure.getMessage());
+        }
     }
 
     /** Opens a sealed .vault or an unsealed .dat left by a forced termination. */

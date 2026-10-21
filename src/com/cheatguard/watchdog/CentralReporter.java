@@ -22,12 +22,15 @@ import java.util.List;
  * the exam LAN.
  *
  * <p>The student types TWO things on the session setup card: the invigilator's
- * IP and the exam code he shared. This client keeps a TCP connection to that
- * IP on port 47821 and forwards every violation, plus the session start and
- * end, as one text line. When the monitor is unreachable the events queue
- * (bounded) and are flushed on reconnect - nothing here can ever block or
- * break the exam itself. There is NO auto-discovery: without the IP and code
- * the alerts stay on the student's own PC.
+ * IP and the exam code he shared. This client keeps a TLS connection (plaintext
+ * TCP only in explicit development mode) to that IP on port 47821 and forwards
+ * every violation, plus the session start and end, as one text line. The
+ * invigilator's certificate is validated against a truststore before any byte
+ * of exam data leaves the machine; the HMAC challenge-response then proves the
+ * exam code on the encrypted channel. When the monitor is unreachable the
+ * events queue (bounded) and are flushed on reconnect - nothing here can ever
+ * block or break the exam itself. There is NO auto-discovery: without the IP
+ * and code the alerts stay on the student's own PC.
  *
  * <p>Mice and keyboards never appear in the feed (they are not device-monitored);
  * everything the watchdog flags locally is what the invigilator sees.
@@ -45,10 +48,12 @@ public final class CentralReporter {
     private volatile String centralHost = "";
     /** The invigilator's IP, typed on the setup card. */
     private final String manualHost;
-    /** The exam code sir shared; the monitor rejects connections with other codes. */
+    /** The exam code the invigilator shared; the monitor rejects connections with other codes. */
     private final String examCode;
     private volatile boolean running;
     private volatile boolean stopping;
+    /** The live connection, closed by stop() for a clean immediate shutdown. */
+    private volatile Socket currentSocket;
     private Thread worker;
 
     public CentralReporter(ExamSession session) {
@@ -94,6 +99,13 @@ public final class CentralReporter {
                 Violation.Severity.INFO));
         stopping = true;
         running = false;
+        Socket live = currentSocket;
+        if (live != null) {
+            try {
+                live.close(); // unblock the sender so the final batch drains and exits
+            } catch (Exception ignored) {
+            }
+        }
         if (worker != null) worker.interrupt();
     }
 
@@ -131,11 +143,18 @@ public final class CentralReporter {
     /** Connect/reconnect to the central monitor and drain the queue. */
     private void sendLoop() {
         List<String> batch = new ArrayList<>();
+        boolean developmentPlaintext = CentralTls.plaintextDevModeEnabled();
+        if (developmentPlaintext) CentralTls.warnPlaintextOnce();
         while (running || stopping) {
             String host = centralHost;
             if (host.isEmpty()) break;
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress(host, CENTRAL_TCP_PORT), 3000);
+            try (Socket socket = developmentPlaintext
+                    ? CentralTls.newDevelopmentClientSocket()
+                    : CentralTls.newClientSocket(host, CENTRAL_TCP_PORT)) {
+                currentSocket = socket;
+                if (developmentPlaintext) {
+                    socket.connect(new InetSocketAddress(host, CENTRAL_TCP_PORT), 3000);
+                }
                 OutputStream out = socket.getOutputStream();
                 BufferedReader in = new BufferedReader(
                         new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
@@ -153,7 +172,7 @@ public final class CentralReporter {
                 while (running || hasQueuedEvents()) {
                     synchronized (queue) {
                         batch.clear();
-                        while (!queue.isEmpty() && batch.size() < 50) batch.addLast(queue.pollFirst());
+                        while (!queue.isEmpty() && batch.size() < 50) batch.add(queue.pollFirst());
                     }
                     for (String line : batch) {
                         out.write((line + "\n").getBytes(StandardCharsets.UTF_8));
@@ -164,9 +183,11 @@ public final class CentralReporter {
                 out.flush();
                 stopping = false;
             } catch (Exception e) {
-                // monitor down or lockdown blocking: retry after a pause
+                // monitor down, bad TLS certificate, or lockdown blocking: retry
                 if (stopping) break;
                 sleepQuiet(2000);
+            } finally {
+                currentSocket = null;
             }
         }
         stopping = false;

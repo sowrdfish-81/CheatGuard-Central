@@ -376,8 +376,8 @@ public class Main {
 
         JTextField courseField = UITheme.field("e.g. CSE-3202");
         JTextField studentField = UITheme.field("e.g. 2021831045");
-        JTextField centralField = UITheme.field("Sir-er PC er IP (e.g. 192.168.0.50)");
-        JTextField codeField = UITheme.field("Exam code sir theke (e.g. 482913)");
+        JTextField centralField = UITheme.field("Invigilator PC IP (e.g. 192.168.0.50)");
+        JTextField codeField = UITheme.field("Exam code from the invigilator (e.g. 482913)");
         codeField.setMaximumSize(new Dimension(400, 42));
         courseField.setMaximumSize(new Dimension(400, 42));
         studentField.setMaximumSize(new Dimension(400, 42));
@@ -425,9 +425,9 @@ public class Main {
         card.add(Box.createVerticalStrut(14));
         card.add(labelled("Student ID", studentField));
         card.add(Box.createVerticalStrut(14));
-        card.add(labelled("Exam code - sir theke nite hobe (central monitoring)", codeField));
+        card.add(labelled("Exam code - given by the invigilator (central monitoring)", codeField));
         card.add(Box.createVerticalStrut(10));
-        card.add(labelled("Sir-er PC IP - central monitoring er jonno lagbe", centralField));
+        card.add(labelled("Invigilator PC IP - required for central monitoring", centralField));
         card.add(Box.createVerticalStrut(24));
         card.add(startBtn);
         card.add(Box.createVerticalStrut(10));
@@ -1085,6 +1085,11 @@ public class Main {
                     try {
                         new ProcessBuilder(target.getAbsolutePath(), "/quiet", "/norestart").start();
                     } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(frame,
+                                "The update was downloaded but the installer could not be started: "
+                                        + ex.getMessage()
+                                        + "\nRun it manually from: " + target.getAbsolutePath(),
+                                "Update failed", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
                     System.exit(0);

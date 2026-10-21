@@ -5,11 +5,11 @@ import com.cheatguard.core.Violation;
 /**
  * OOP Concept: INTERFACE (abstraction)
  * --------------------------------------
- * WatchdogEngine ke direct AlarmPlayer/ScreenLocker class chinte hobe na.
- * Eta shudhu jane je "kono violation hole, ekta onVoilation() call hobe".
- * Main.java run-time e ekta implementation (lambda) diye WatchdogEngine ke
- * bole dey exactly ki korte hobe (alarm baja, screen lock kora, etc).
- * Eta "loose coupling" - alada module gula ek-onner shathe tightly bound thake na.
+ * WatchdogEngine never needs to know the AlarmPlayer/ScreenLocker classes directly.
+ * It only knows that "when a violation happens, an onViolation() call is made".
+ * Main.java hands WatchdogEngine an implementation (lambda) at run-time that decides
+ * exactly what to do (sound the alarm, lock the screen, etc).
+ * This is "loose coupling" - separate modules are not tightly bound to each other.
  */
 public interface ViolationListener {
     void onViolation(Violation violation);

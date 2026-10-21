@@ -6,10 +6,10 @@ import java.time.format.DateTimeFormatter;
 /**
  * OOP Concept: ENCAPSULATION
  * ---------------------------
- * Ei class ekta single "violation" (cheating attempt) ke represent kore.
- * Shob field 'private' -> bairer kono class direct field change korte parbe na,
- * shudhu getter দিয়ে read korte parbe. Eita data safety'r jonno important,
- * jate log tamper na hoy accidentally kono onno class theke.
+ * This class represents a single "violation" (cheating attempt).
+ * All fields are 'private' -> no outside class can change a field directly;
+ * it can only be read through getters. This is important for data safety,
+ * so the log is never accidentally tampered with by any other class.
  */
 public class Violation {
 
@@ -43,9 +43,9 @@ public class Violation {
     }
 
     /**
-     * Log e likhar jonno ekta single-line format.
-     * CRITICAL/WARNING violation ke [RED-FLAG] tag diye mark kora hoy,
-     * jate GUI dashboard eta dekhe red color e highlight korte pare.
+     * Single-line format for writing to the log.
+     * CRITICAL/WARNING violations are marked with a [RED-FLAG] tag,
+     * so the GUI dashboard can highlight them in red.
      *
      * Line breaks in the description are flattened first: descriptions can carry
      * data from outside (process names, hosts) and a raw newline would let a crafted

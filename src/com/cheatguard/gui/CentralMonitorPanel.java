@@ -25,6 +25,7 @@ import java.util.Map;
 import java.security.SecureRandom;
 import java.util.concurrent.CopyOnWriteArrayList;
 import com.cheatguard.watchdog.CentralAuth;
+import com.cheatguard.watchdog.CentralTls;
 
 /**
  * The invigilator's central screen, organised the way an invigilator thinks:
@@ -312,21 +313,35 @@ public class CentralMonitorPanel extends JPanel {
             return;
         }
         examCode = code;
+        boolean developmentPlaintext = CentralTls.plaintextDevModeEnabled();
         try {
             openFirewall();
-            serverSocket = new ServerSocket();
-            serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), CENTRAL_TCP_PORT));
+            if (developmentPlaintext) {
+                // Explicit development opt-in only; production always uses TLS.
+                serverSocket = new ServerSocket();
+                serverSocket.setReuseAddress(true);
+                serverSocket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), CENTRAL_TCP_PORT));
+            } else {
+                serverSocket = CentralTls.newServerSocket(CENTRAL_TCP_PORT);
+            }
             openCsv();
             running = true;
             acceptThread = new Thread(this::acceptLoop, "CheatGuard-CentralAccept");
             acceptThread.setDaemon(true);
             acceptThread.start();
-            statusLabel.setText("Your LAN IP: " + firstLanIp() + "  |  Exam code: " + code
-                    + "  |  Students must be on the SAME Wi-Fi/network as you.");
-            statusLabel.setForeground(UITheme.ACCENT_TEAL);
+            if (developmentPlaintext) {
+                statusLabel.setText(CentralTls.plaintextWarning()
+                        + "  |  LAN IP: " + firstLanIp() + "  |  Exam code: " + code);
+                statusLabel.setForeground(UITheme.WARN);
+            } else {
+                statusLabel.setText("TLS encrypted  |  Your LAN IP: " + firstLanIp()
+                        + "  |  Exam code: " + code
+                        + "  |  Students must be on the SAME Wi-Fi/network as you.");
+                statusLabel.setForeground(UITheme.ACCENT_TEAL);
+            }
         } catch (Exception e) {
-            statusLabel.setText("Could not start: " + e.getMessage() + " (port already in use?)");
+            statusLabel.setText("Could not start: " + e.getMessage()
+                    + " (port already in use? keystore missing? See docs/CENTRAL_TLS.md)");
             statusLabel.setForeground(UITheme.ACCENT_RED);
             stopMonitor();
         }

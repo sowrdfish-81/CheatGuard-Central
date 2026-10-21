@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in CheatGuard Central does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill in everything below. Remove any exam-identifiable data
+        (real student IDs, course codes, institution names) before posting.
+        Security issues belong in a private security advisory, not here.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: "Settings > About, e.g. 1.9.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and role
+      description: "e.g. Windows 11 24H2, installed on the invigilator PC / a student PC, standard user during the session"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Exam session / lockdown
+        - Network (DNS allowlist, firewall, proxy)
+        - Central monitor (invigilator screen)
+        - Central monitor transport (TLS / connection)
+        - Sealed logs / vaults / backups
+        - Installer / update
+        - Emergency restore / recovery
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start a session with ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: "Paste relevant lines from the diagnostics log (%ProgramData%\\CheatGuard\\logs) if you have them."
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I removed exam-identifiable data from this report
+          required: true
+        - label: I reproduced this on the latest release (or current main)
+          required: true

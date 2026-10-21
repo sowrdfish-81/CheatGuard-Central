@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/sowrdfish-81/CheatGuard-Central/security/advisories/new
+    about: Report exploitable issues privately (lockdown bypass, vault crypto, TLS/auth). Never in a public issue.
+  - name: Usage question / deployment help
+    url: https://github.com/sowrdfish-81/CheatGuard-Central/discussions
+    about: Ask how to deploy or run CheatGuard Central in your exam hall.

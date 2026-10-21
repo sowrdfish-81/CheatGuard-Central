@@ -7,12 +7,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * Sha256Signer: file-er content theke ekta SHA-256 "fingerprint" (hash)
- * ber kore. Ei hash ta alada .sig file e save rakha hoy (Layer 3 of vault).
+ * Sha256Signer: computes a SHA-256 "fingerprint" (hash) from a file's content.
+ * The hash is saved in a separate .sig file (Layer 3 of the vault).
  *
- * Kaje lage: jodi keu encrypted log file ta directly edit korar chesta kore
- * (tamper), tahole hash mile jabe na -> instructor dashboard bujhte parbe
- * je log ta tampered.
+ * Why it matters: if anyone tries to edit the encrypted log file directly
+ * (tamper), the hash will not match -> the instructor dashboard will know
+ * the log was tampered with.
  */
 public class Sha256Signer {
 
@@ -34,8 +34,8 @@ public class Sha256Signer {
     }
 
     /**
-     * @return true jodi file-er current hash, save kora signature-er shathe mile jai
-     *         (mane file tampered hoyni)
+     * @return true if the file's current hash matches the saved signature
+     *         (i.e. the file was not tampered with)
      */
     public boolean verify(File file, String expectedSignature) throws IOException, NoSuchAlgorithmException {
         String actual = generateSignature(file);

@@ -104,6 +104,19 @@ public final class AppPaths {
         return dir;
     }
 
+    /**
+     * Dedicated directory for automatic backups of sealed vault files. It is
+     * deliberately separate from {@link #getVaultDirectory()} so retention
+     * pruning can only ever delete backup copies, never an active vault, and
+     * separate from the diagnostics directory so audit material and support
+     * logs never mix.
+     */
+    public static File getBackupDirectory() {
+        File dir = new File(getDataDirectory(), "vault-backup");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
     public static File getWhitelistFile() {
         return new File(getConfigDirectory(), "whitelist.properties");
     }
