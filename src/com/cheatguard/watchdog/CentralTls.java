@@ -132,6 +132,9 @@ public final class CentralTls {
             File trust = configuredTruststoreFile();
             String keytool = new File(System.getProperty("java.home"), "bin/keytool.exe").getAbsolutePath();
             if (!new File(keytool).isFile()) keytool = new File(System.getProperty("java.home"), "bin/keytool").getAbsolutePath();
+            // jpackage's trimmed runtime normally omits keytool; use the system
+            // JDK tool when the installed runtime does not contain it.
+            if (!new File(keytool).isFile()) keytool = "keytool";
             runKeytool(keytool, "-genkeypair", "-alias", "central", "-keyalg", "RSA", "-keysize", "2048",
                     "-validity", "3650", "-dname", "CN=CheatGuard Central Monitor", "-ext", san,
                     "-keystore", key.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", password, "-keypass", password);
