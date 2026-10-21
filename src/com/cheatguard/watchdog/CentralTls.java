@@ -110,7 +110,20 @@ public final class CentralTls {
 
     /** Create the invigilator TLS material on first monitor start. */
     public static synchronized void ensureServerSetup() throws IOException {
-        if (configuredKeystoreFile().isFile()) return;
+        File existingKey = configuredKeystoreFile();
+        if (existingKey.isFile()) {
+            if (hasConfiguredStorePassword()) return;
+            // A previous auto-provision attempt may have created the keystore
+            // before persisting its password. Preserve it for recovery, then
+            // create a fresh managed identity instead of blocking monitor start.
+            if (!existingKey.equals(defaultKeystoreFile())) return;
+            String suffix = ".orphaned-" + System.currentTimeMillis();
+            Files.move(existingKey.toPath(), new File(existingKey + suffix).toPath());
+            File oldTrust = configuredTruststoreFile();
+            if (oldTrust.isFile() && oldTrust.equals(defaultTruststoreFile())) {
+                Files.move(oldTrust.toPath(), new File(oldTrust + suffix).toPath());
+            }
+        }
         File dir = configuredKeystoreFile().getParentFile();
         if (dir == null) throw new IOException("Central TLS config directory is unavailable");
         if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Could not create " + dir);
@@ -155,6 +168,15 @@ public final class CentralTls {
         StringBuilder out = new StringBuilder();
         for (byte b : bytes) out.append(String.format("%02x", b));
         return out.toString();
+    }
+
+    private static boolean hasConfiguredStorePassword() {
+        String value = System.getProperty(STOREPASS_SYSTEM_PROPERTY, "");
+        if (value.isBlank()) value = System.getenv(STOREPASS_ENVIRONMENT);
+        if (value == null || value.isBlank()) {
+            value = AppConfig.getInstance().getConfigValue(STOREPASS_CONFIG);
+        }
+        return value != null && !value.isBlank();
     }
 
     private static void runKeytool(String keytool, String... args) throws IOException, InterruptedException {
