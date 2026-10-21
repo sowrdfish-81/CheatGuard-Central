@@ -179,7 +179,9 @@ public final class UpdateChecker {
                 }
             } catch (Exception ignored) {
             }
-        }, 15, 360, TimeUnit.SECONDS);
+        // Check as soon as the app starts so an available release is shown during
+        // the first session, while the daemon thread keeps later retries quiet.
+        }, 0, 360, TimeUnit.SECONDS);
     }
 
     /** Numeric compare of dotted versions ("2.2" vs "3.0"). */
