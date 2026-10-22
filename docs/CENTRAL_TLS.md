@@ -19,7 +19,16 @@ fallback.
 Port and firewall stay exactly as before: **TCP 47821** in both modes, the
 same `CheatGuard Central Monitor` firewall rule.
 
-## Generating the keystores (invigilator PC, once per machine)
+## Automatic setup (recommended)
+
+The current installer automatically detects the invigilator PC's active LAN
+IPv4 addresses and creates the TLS keystore/truststore when **Start monitor**
+is pressed for the first time. No manual certificate generation or password
+entry is required. If an interrupted first setup left an unmanaged keystore,
+the app preserves it as an orphaned backup and provisions a fresh managed
+identity.
+
+## Manual keystore generation (optional)
 
 Run the shipped helper as Administrator:
 

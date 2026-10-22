@@ -8,8 +8,8 @@ invigilator's screen over **TLS** with an HMAC exam-code proof on top.
 
 ## Current release
 
-Version: **1.9.0**
-Release: [v1.9.0](https://github.com/sowrdfish-81/CheatGuard-Central/releases/tag/v1.9.0)
+Version: **1.9.6**
+Release: [v1.9.6](https://github.com/sowrdfish-81/CheatGuard-Central/releases/tag/v1.9.6)
 
 Release assets (see the release page for the exact SHA-256 of the current
 installer; the in-app updater verifies it before installing):
@@ -121,14 +121,15 @@ build-installer.bat        Installer build and checksum generation
 1. Install `CheatGuardCentral-Setup.exe` with administrator privileges on
    the invigilator PC and every student PC.
 2. Set the administrator password on first launch on each machine.
-3. Once, on the invigilator PC: generate the monitor TLS material
-   (`support\generate-central-tls.ps1 -LanIp <your-LAN-IP>`) and copy the
-   generated `central-monitor-truststore.p12` to every student PC
-   (see [docs/CENTRAL_TLS.md](docs/CENTRAL_TLS.md)).
+3. On the invigilator PC, open Central Monitor and press **Start monitor**.
+   The app automatically detects the active LAN IP and provisions TLS on the
+   first start. Copy the generated `central-monitor-truststore.p12` to every
+   student PC when using the production TLS client setup.
 4. Configure approved applications and exam websites (or load a saved exam
    profile).
-5. Start the central monitor, share the LAN IP and exam code, and start
-   sessions on the students' PCs with the same code.
+5. Start the central monitor, share the displayed LAN IP and exam code, and
+   start sessions on the students' PCs with the same code. Press **Stop**
+   before using Back; Back is blocked while monitoring is active.
 6. End each session ("End session and seal log"); the sealed vault is backed
    up automatically.
 
