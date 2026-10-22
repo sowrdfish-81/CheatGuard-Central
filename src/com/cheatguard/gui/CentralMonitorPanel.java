@@ -124,7 +124,11 @@ public class CentralMonitorPanel extends JPanel {
 
         JButton back = UITheme.ghost("Back");
         back.addActionListener(e -> {
-            stopMonitor();
+            if (running) {
+                statusLabel.setText("Stop the monitor before going back. Student connections are still active.");
+                statusLabel.setForeground(UITheme.WARN);
+                return;
+            }
             onBack.run();
         });
         JPanel header = new JPanel(new BorderLayout(12, 0));
