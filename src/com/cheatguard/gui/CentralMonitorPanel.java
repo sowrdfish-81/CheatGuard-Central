@@ -81,6 +81,8 @@ public class CentralMonitorPanel extends JPanel {
     private final JTable eventTable = new JTable(eventModel);
 
     private final JLabel statusLabel = new JLabel("Monitor stopped.");
+    private final JLabel lanIpLabel = new JLabel();
+    private final JLabel activeCodeLabel = new JLabel();
     private final JLabel counters = new JLabel("PCs: 0   Alerts: 0");
     private final JLabel detailTitle = new JLabel();
     private StudentRecord detailStudent;
@@ -125,8 +127,10 @@ public class CentralMonitorPanel extends JPanel {
         JButton back = UITheme.ghost("Back");
         back.addActionListener(e -> {
             if (running) {
-                statusLabel.setText("Stop the monitor before going back. Student connections are still active.");
-                statusLabel.setForeground(UITheme.WARN);
+                JOptionPane.showMessageDialog(this,
+                        "The monitor is still running and student connections are active.\n"
+                                + "Press Stop first; your current PC list and alerts will remain visible.",
+                        "Monitor still running", JOptionPane.WARNING_MESSAGE);
                 return;
             }
             onBack.run();
@@ -224,13 +228,21 @@ public class CentralMonitorPanel extends JPanel {
         controlsRow.add(counters, BorderLayout.EAST);
 
         statusLabel.setFont(UITheme.FONT_BODY);
+        configureCopyLabel(lanIpLabel, "LAN IP: ");
+        configureCopyLabel(activeCodeLabel, "Exam code: ");
+
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
+        statusRow.setOpaque(false);
+        statusRow.add(statusLabel);
+        statusRow.add(lanIpLabel);
+        statusRow.add(activeCodeLabel);
 
         JPanel listCard = UITheme.card();
         listCard.setLayout(new BorderLayout(10, 12));
         JPanel top = new JPanel(new BorderLayout(0, 12));
         top.setOpaque(false);
         top.add(controlsRow, BorderLayout.NORTH);
-        top.add(statusLabel, BorderLayout.SOUTH);
+        top.add(statusRow, BorderLayout.SOUTH);
         listCard.add(top, BorderLayout.NORTH);
         listCard.add(studentScroll, BorderLayout.CENTER);
 
@@ -344,13 +356,16 @@ public class CentralMonitorPanel extends JPanel {
             acceptThread.setDaemon(true);
             acceptThread.start();
             if (developmentPlaintext) {
-                statusLabel.setText(CentralTls.plaintextWarning()
-                        + "  |  LAN IP: " + firstLanIp() + "  |  Exam code: " + code);
+                String ip = firstLanIp();
+                statusLabel.setText(CentralTls.plaintextWarning());
+                setCopyValue(lanIpLabel, "LAN IP: ", ip);
+                setCopyValue(activeCodeLabel, "Exam code: ", code);
                 statusLabel.setForeground(UITheme.WARN);
             } else {
-                statusLabel.setText("TLS encrypted  |  Your LAN IP: " + firstLanIp()
-                        + "  |  Exam code: " + code
-                        + "  |  Students must be on the SAME Wi-Fi/network as you.");
+                String ip = firstLanIp();
+                statusLabel.setText("TLS encrypted");
+                setCopyValue(lanIpLabel, "LAN IP: ", ip);
+                setCopyValue(activeCodeLabel, "Exam code: ", code);
                 statusLabel.setForeground(UITheme.ACCENT_TEAL);
             }
         } catch (Exception e) {
@@ -383,6 +398,30 @@ public class CentralMonitorPanel extends JPanel {
             statusLabel.setText("Monitor stopped.");
             statusLabel.setForeground(UITheme.TEXT_MUTED);
         }
+    }
+
+    private void configureCopyLabel(JLabel label, String prefix) {
+        label.setFont(UITheme.FONT_SECTION);
+        label.setForeground(UITheme.ACCENT_TEAL);
+        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        label.setToolTipText("Click to copy");
+        label.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                String value = label.getClientProperty("copyValue") instanceof String s ? s : "";
+                if (value.isBlank()) return;
+                Toolkit.getDefaultToolkit().getSystemClipboard()
+                        .setContents(new java.awt.datatransfer.StringSelection(value), null);
+                label.setText(prefix + value + "  (Copied)");
+                Timer timer = new Timer(1400, ev -> label.setText(prefix + value));
+                timer.setRepeats(false);
+                timer.start();
+            }
+        });
+    }
+
+    private void setCopyValue(JLabel label, String prefix, String value) {
+        label.putClientProperty("copyValue", value == null ? "" : value);
+        label.setText(prefix + (value == null ? "" : value));
     }
 
     // ----------------------------------------------------------- server I/O --
