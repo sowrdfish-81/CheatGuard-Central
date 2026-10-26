@@ -316,8 +316,6 @@ public class CentralMonitorPanel extends JPanel {
         try {
             openFirewall();
             serverSocket = CentralTls.openServerSocket(CENTRAL_TCP_PORT);
-            serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), CENTRAL_TCP_PORT));
             openCsv();
             running = true;
             acceptThread = new Thread(this::acceptLoop, "CheatGuard-CentralAccept");
