@@ -629,11 +629,16 @@ public final class StrictNetworkLockdown implements Closeable {
         // active with nothing to signal success. UAC-decline is still surfaced
         // synchronously by Start-Process -Verb RunAs even without -Wait, so we don't
         // lose that error path.
+        // Pass a literal argument array to Start-Process.  Passing a variable
+        // containing an array through the nested PowerShell command is subtly
+        // lossy on some Windows PowerShell builds: the elevated process is
+        // created, but -File/-Config are collapsed and the script exits before
+        // its own diagnostics can be written.
         String command = "$ErrorActionPreference='Stop'; " +
-                "$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File','" + helperPath +
-                "','-Config','" + configPath + "'" + recoverArg + "); " +
                 "$p=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs " +
-                "-WorkingDirectory '" + workDir + "' -ArgumentList $args -PassThru; " +
+                "-WorkingDirectory '" + workDir + "' -WindowStyle Normal " +
+                "-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','" + helperPath +
+                "','-Config','" + configPath + "'" + recoverArg + ") -PassThru; " +
                 "if($null -eq $p){ throw 'Could not start elevated network helper.' }";
 
         Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command)
