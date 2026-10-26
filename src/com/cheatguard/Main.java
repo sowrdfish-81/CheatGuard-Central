@@ -609,7 +609,11 @@ public class Main {
                 : detail;
         JTextArea area = new JTextArea(
                 "The website lock could not be enabled, so the exam was NOT started.\n"
-                        + "Nothing on this computer was left changed.\n\nWindows reported:\n" + text);
+                        + "Cheat.Guard rolled the lockdown back, so the Internet and files on this\n"
+                        + "computer keep working normally. Nothing needs to be repaired.\n\n"
+                        + "Windows reported:\n" + text
+                        + "\n\nTechnical detail (for support): the helper's step log is at\n"
+                        + "C:\\ProgramData\\CheatGuard\\network\\helper-log.txt");
         area.setEditable(false);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);

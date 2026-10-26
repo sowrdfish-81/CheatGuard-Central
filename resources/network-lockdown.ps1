@@ -869,13 +869,16 @@ if ($FailSafeCheck) {
 }
 
 try {
+    Log-Step 'helper started (recoverOnly=' + $RecoverOnly + ', pid=' + $PID + ')'
     Assert-Administrator
     Ensure-FirewallServices
+    Log-Step 'administrator + firewall services verified'
 
     # Register the fail-safe FIRST, before anything is locked: if this helper dies
     # mid-arm (locks applied, process gone), the very next task tick still
     # recovers the machine. The registration is idempotent (/F).
     Register-FailSafeTask
+    Log-Step 'fail-safe task registered'
 
     # Supersede any stale copy of this helper left behind by an interrupted start
     # or an app-side relaunch: two live helpers would race each other's restores.
@@ -885,8 +888,10 @@ try {
                        -and $_.ProcessId -ne $PID } |
         ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }
     Start-Sleep -Milliseconds 400
+    Log-Step 'stale helper superseded'
 
     if ($RecoverOnly) {
+        Log-Step 'recover-only: restoring'
         if (Restore-All) {
             'RESTORED' | Set-Content -LiteralPath $restoredFile -Encoding ASCII
             exit 0
@@ -900,7 +905,7 @@ try {
     }
 
     # Recover a previous interrupted session before taking a fresh snapshot.
-    if (Test-Path -LiteralPath $stateFile) { Restore-All }
+    if (Test-Path -LiteralPath $stateFile) { Log-Step 'previous session state found; restoring first'; Restore-All; Log-Step 'previous session restored' }
 
     $profiles = @(Get-NetFirewallProfile | ForEach-Object {
         [ordered]@{ Name=$_.Name; Enabled=$_.Enabled.ToString(); DefaultOutboundAction=$_.DefaultOutboundAction.ToString() }
@@ -1021,6 +1026,7 @@ try {
     }
 
     # ---- file walls: deny the student's account everything outside the exam folder ----
+    Log-Step 'firewall rules armed; applying file walls'
     $script:fileLocks = @()
     if ((-not [string]::IsNullOrWhiteSpace($lockPathsFile)) -and (Test-Path -LiteralPath $lockPathsFile)) {
         try { $script:fileLocks = @(Set-FileAccessLocks $lockPathsFile $cfg.userSid) } catch { $script:fileLocks = @() }
@@ -1046,15 +1052,18 @@ try {
     # Force browsers onto the system resolver, then point the system resolver at the
     # Cheat.Guard DNS filter. Unapproved domains then fail to resolve for every program,
     # while approved domains resolve normally and connect over their usual direct path.
+    Log-Step 'file walls applied; disabling browser DoH'
     Disable-BrowserDoh
     $redirectIpv6 = [bool]$cfg.dnsIpv6
     $dnsChanged = Set-ExamDns -RedirectIpv6 $redirectIpv6
+    Log-Step ('DNS redirect applied to ' + $dnsChanged + ' adapter(s)')
     if ($dnsChanged -lt 1) {
         throw 'Could not redirect any network adapter to the Cheat.Guard DNS filter (127.0.0.1). Check that a network adapter is connected.'
     }
     if (-not (Test-DnsFilter '127.0.0.1')) {
         throw 'The Cheat.Guard DNS filter on 127.0.0.1:53 did not answer a test lookup. Lockdown has been rolled back so the computer keeps working; start the exam again.'
     }
+    Log-Step 'DNS filter test passed'
 
     # Chromium/Firefox cache DoH and resolver state, so restart them once when exam mode
     # begins to make sure the policy and the redirected DNS are picked up.
@@ -1094,6 +1103,7 @@ try {
     Register-FailSafeTask
 
     'READY' | Set-Content -LiteralPath $readyFile -Encoding ASCII
+    Log-Step 'READY marker written; entering session loop'
 
     $loopCount = 0
     while ($true) {
@@ -1163,6 +1173,7 @@ try {
     # explanation in error.txt so the app can recover the session cleanly.
     exit 1
 } catch {
+    Log-Step ('FAILED: ' + $_.Exception.Message)
     $msg = @(
         'Cheat.Guard strict-network helper failed.',
         ('Message: ' + $_.Exception.Message),

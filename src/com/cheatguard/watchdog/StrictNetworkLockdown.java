@@ -78,7 +78,7 @@ public final class StrictNetworkLockdown implements Closeable {
             writeLockPaths();
             writeConfig(sid, program);
             launchElevated(false);
-            long end = System.currentTimeMillis() + 90000L;
+            long end = System.currentTimeMillis() + 150000L;
             while (System.currentTimeMillis() < end) {
                 if (ready.exists()) {
                     active = true;
@@ -90,11 +90,37 @@ public final class StrictNetworkLockdown implements Closeable {
                 if (error.exists()) throw new IOException(readQuietly(error));
                 Thread.sleep(250L);
             }
-            throw new IOException("Administrator approval timed out or the elevated network helper did not start.");
+            throw new IOException("Administrator approval timed out or the elevated network helper did not start."
+                    + " Its step-by-step log is at " + new File(networkDir, "helper-log.txt").getAbsolutePath() + ".");
         } catch (Exception e) {
             lastError = friendlyError(e);
-            closeServers();
+            rollbackPartialStart();
             return false;
+        }
+    }
+
+    /**
+     * Undo everything a helper may already have applied when the start never
+     * completed: without this, a helper that armed DNS redirection (or locks)
+     * but did not reach its READY marker - a slow machine, a late UAC approval,
+     * a stalled verification - would leave the computer with a dead resolver
+     * (127.0.0.1 with no filter behind it) and no Internet after a "failed"
+     * start. Writing the stop marker makes the helper tear itself down and
+     * restore every original setting; it is harmless when the helper never ran.
+     */
+    private void rollbackPartialStart() {
+        active = false;
+        try {
+            Files.writeString(stop.toPath(), "STOP", StandardCharsets.US_ASCII);
+            long end = System.currentTimeMillis() + 30000L;
+            while (System.currentTimeMillis() < end) {
+                if (restored.exists() || !state.exists()) break;
+                if (error.exists()) break;
+                Thread.sleep(200L);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            closeServers();
         }
     }
 
@@ -344,6 +370,7 @@ public final class StrictNetworkLockdown implements Closeable {
 
     private void cleanupMarkers() {
         ready.delete(); stop.delete(); restored.delete(); error.delete();
+        new File(networkDir, "helper-log.txt").delete(); // log reflects only the newest attempt
         LogProtection.requestFile().delete();
         LogProtection.doneFile().delete();
     }
@@ -609,10 +636,12 @@ public final class StrictNetworkLockdown implements Closeable {
                 .redirectErrorStream(true).start();
         boolean done;
         try {
-            // This wrapper now returns as soon as the elevated process is launched
-            // (or throws immediately if the UAC prompt is declined), so a short
-            // timeout is enough - it is not waiting for the exam to end anymore.
-            done = p.waitFor(20, TimeUnit.SECONDS);
+            // Start-Process blocks here only until the UAC prompt is answered (the
+            // elevated helper itself runs detached). A non-technical user often
+            // needs well over 20 seconds to read and approve the prompt, so wait
+            // as long as the helper-start window itself; a start that still times
+            // out is rolled back by the caller either way.
+            done = p.waitFor(90, TimeUnit.SECONDS);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new IOException("Interrupted while waiting for Administrator/UAC approval.", ie);
