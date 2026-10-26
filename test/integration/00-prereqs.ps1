@@ -24,11 +24,16 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 Assert 'running elevated as Administrator' (
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
 
-Assert 'installer artifact exists' (Test-Path -LiteralPath $InstallerPath)
+Assert 'installer artifact path was provided' (-not [string]::IsNullOrWhiteSpace($InstallerPath))
+Assert 'installer artifact exists' (
+    -not [string]::IsNullOrWhiteSpace($InstallerPath) -and
+    (Test-Path -LiteralPath $InstallerPath))
 Assert 'resources/network-lockdown.ps1 exists in the checkout' (
-    Test-Path -LiteralPath (Join-Path $RepoRoot 'resources\network-lockdown.ps1'))
+    -not [string]::IsNullOrWhiteSpace($RepoRoot) -and
+    (Test-Path -LiteralPath (Join-Path $RepoRoot 'resources\network-lockdown.ps1')))
 Assert 'support/emergency-restore.ps1 exists in the checkout' (
-    Test-Path -LiteralPath (Join-Path $RepoRoot 'support\emergency-restore.ps1'))
+    -not [string]::IsNullOrWhiteSpace($RepoRoot) -and
+    (Test-Path -LiteralPath (Join-Path $RepoRoot 'support\emergency-restore.ps1')))
 
 $app = Get-Process -Name 'CheatGuardCentral','CheatGuard' -ErrorAction SilentlyContinue
 Assert 'no CheatGuard process is already running' (-not $app)
