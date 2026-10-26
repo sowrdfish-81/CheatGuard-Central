@@ -22,6 +22,17 @@ $egressStatusFile = [string]$cfg.egressStatusFile
 $verifyHost = [string]$cfg.verifyHost
 $lockPathsFile = [string]$cfg.lockPathsFile
 $lockStatusFile = [string]$cfg.lockStatusFile
+$helperLogFile = Join-Path $PSScriptRoot 'helper-log.txt'
+
+# Keep a step-by-step trace even when the helper fails before the main try/catch
+# can create error.txt. This must be defined before the first helper startup step.
+function Log-Step([string]$Message) {
+    try {
+        ('[' + (Get-Date -Format o) + '] ' + $Message) |
+            Add-Content -LiteralPath $helperLogFile -Encoding UTF8
+    } catch {}
+}
+
 $fusKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
 $groupName = 'Cheat.Guard Strict Exam'
 $proxyKey = "Registry::HKEY_USERS\$($cfg.userSid)\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
