@@ -18,6 +18,7 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
@@ -234,6 +235,17 @@ public final class CentralTls {
         }
     }
 
+    /** Opens the configured monitor listener, or the explicit development transport. */
+    public static ServerSocket openServerSocket(int port) throws IOException {
+        if (plaintextDevModeEnabled()) {
+            ServerSocket socket = new ServerSocket();
+            socket.setReuseAddress(true);
+            socket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), 50);
+            return socket;
+        }
+        return newServerSocket(port);
+    }
+
     // ----------------------------------------------------------- client ----
 
     /**
@@ -276,6 +288,12 @@ public final class CentralTls {
         } catch (Exception e) {
             throw new IOException("Central monitor TLS setup failed: " + e.getMessage(), e);
         }
+    }
+
+    /** Opens the configured monitor client transport, or explicit development TCP. */
+    public static Socket openClientSocket(String host, int port) throws IOException {
+        if (plaintextDevModeEnabled()) return new Socket();
+        return newClientSocket(host, port);
     }
 
     /**

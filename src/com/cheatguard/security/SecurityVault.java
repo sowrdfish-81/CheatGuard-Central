@@ -58,15 +58,7 @@ public class SecurityVault {
         if (!plaintextLogFile.delete()) plaintextLogFile.deleteOnExit();
         hideFile(vaultFile);
         hideFile(sigFile);
-        // Off-machine insurance: copy the sealed (still encrypted) vault to the
-        // backup directory. Failures are logged, never thrown - the seal itself
-        // has already succeeded and an exam must not stall on a backup.
-        try {
-            VaultBackupManager.createDefault().backupVault(vaultFile);
-        } catch (Exception backupFailure) {
-            com.cheatguard.core.AppLog.warn("Vault backup after seal failed: "
-                    + backupFailure.getMessage());
-        }
+        BackupManager.backupSealedPair(vaultFile, sigFile);
     }
 
     /** Opens a sealed .vault or an unsealed .dat left by a forced termination. */
@@ -93,6 +85,34 @@ public class SecurityVault {
         String content = new String(plain, StandardCharsets.UTF_8);
         Arrays.fill(plain, (byte) 0);
         return content;
+    }
+
+    /** Re-seal every vault readable with the old password using the new password. */
+    public int reencryptVaults(char[] oldPassword, char[] newPassword) throws Exception {
+        File dir = com.cheatguard.config.AppPaths.getVaultDirectory();
+        File[] vaults = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".vault"));
+        if (vaults == null) return 0;
+        int converted = 0;
+        for (File vault : vaults) {
+            byte[] plain;
+            try { plain = encryptor.decryptFile(vault, oldPassword); }
+            catch (Exception ignored) { continue; }
+            File staged = new File(vault.getAbsolutePath() + ".new");
+            File plainStaged = File.createTempFile("cg-reseal", ".dat", dir);
+            try {
+                Files.write(plainStaged.toPath(), plain);
+                encryptor.encryptFile(plainStaged, staged, newPassword);
+                File sig = new File(vault.getAbsolutePath() + ".sig");
+                if (!vault.delete() || !staged.renameTo(vault))
+                    throw new IllegalStateException("Could not replace vault " + vault.getName());
+                try (FileWriter fw = new FileWriter(sig)) { fw.write("gcm-v2"); }
+                hideFile(vault); hideFile(sig); converted++;
+            } finally {
+                Arrays.fill(plain, (byte) 0);
+                plainStaged.delete(); staged.delete();
+            }
+        }
+        return converted;
     }
 
     /**
@@ -139,53 +159,6 @@ public class SecurityVault {
         if (!adminAuth.check(probe).success()) {
             throw new SecurityException("Incorrect admin password.");
         }
-    }
-
-    /**
-     * Re-encrypt every sealed vault with a new password, so changing the admin
-     * password never makes past session logs unreadable. Files that cannot be
-     * decrypted with the old password (already re-encrypted, or sealed during an
-     * aborted change) are skipped, not destroyed - the original stays on disk.
-     *
-     * @return the number of vaults converted
-     */
-    public int reencryptVaults(char[] oldPassword, char[] newPassword) throws Exception {
-        File[] vaults = com.cheatguard.config.AppPaths.getVaultDirectory()
-                .listFiles((dir, name) -> name.toLowerCase().endsWith(".vault"));
-        if (vaults == null) return 0;
-        int converted = 0;
-        for (File vault : vaults) {
-            byte[] plain;
-            try {
-                plain = encryptor.decryptFile(vault, oldPassword);
-            } catch (Exception notOldPassword) {
-                continue; // sealed with another password; leave it untouched
-            }
-            File staged = new File(vault.getAbsolutePath() + ".new");
-            try {
-                File plainStaged = File.createTempFile("cg-reseal", ".dat", vault.getParentFile());
-                try {
-                    java.nio.file.Files.write(plainStaged.toPath(), plain);
-                    encryptor.encryptFile(plainStaged, staged, newPassword);
-                } finally {
-                    plainStaged.delete();
-                }
-                if (!vault.delete() || !staged.renameTo(vault)) {
-                    staged.delete();
-                    throw new IllegalStateException("Could not replace vault " + vault.getName());
-                }
-                // The new vault is AES-GCM authenticated; the signature marker must
-                // say so, or a legacy SHA-256 .sig would fail verification on open.
-                File sigFile = new File(vault.getAbsolutePath() + ".sig");
-                try (FileWriter fw = new FileWriter(sigFile)) { fw.write("gcm-v2"); }
-                hideFile(vault);
-                hideFile(sigFile);
-                converted++;
-            } finally {
-                Arrays.fill(plain, (byte) 0);
-            }
-        }
-        return converted;
     }
 
     private void hideFile(File file) {

@@ -81,8 +81,6 @@ public class CentralMonitorPanel extends JPanel {
     private final JTable eventTable = new JTable(eventModel);
 
     private final JLabel statusLabel = new JLabel("Monitor stopped.");
-    private final JLabel lanIpLabel = new JLabel();
-    private final JLabel activeCodeLabel = new JLabel();
     private final JLabel counters = new JLabel("PCs: 0   Alerts: 0");
     private final JLabel detailTitle = new JLabel();
     private StudentRecord detailStudent;
@@ -105,7 +103,6 @@ public class CentralMonitorPanel extends JPanel {
     private JButton markCheatBtn;
     private JButton markClearedBtn;
     private final JTextField codeField = new JTextField();
-    private JButton shuffle;
 
     public CentralMonitorPanel(Runnable onBack) {
         setLayout(new BorderLayout(14, 14));
@@ -126,13 +123,7 @@ public class CentralMonitorPanel extends JPanel {
 
         JButton back = UITheme.ghost("Back");
         back.addActionListener(e -> {
-            if (running) {
-                JOptionPane.showMessageDialog(this,
-                        "The monitor is still running and student connections are active.\n"
-                                + "Press Stop first; your current PC list and alerts will remain visible.",
-                        "Monitor still running", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
+            stopMonitor();
             onBack.run();
         });
         JPanel header = new JPanel(new BorderLayout(12, 0));
@@ -207,7 +198,6 @@ public class CentralMonitorPanel extends JPanel {
         codeField.setPreferredSize(new Dimension(150, 34));
         codeField.setText(randomCode());
         JButton shuffle = UITheme.ghost("New code");
-        this.shuffle = shuffle;
         shuffle.addActionListener(e -> codeField.setText(randomCode()));
         JButton start = UITheme.primary("Start monitor");
         start.addActionListener(e -> startMonitor());
@@ -228,21 +218,13 @@ public class CentralMonitorPanel extends JPanel {
         controlsRow.add(counters, BorderLayout.EAST);
 
         statusLabel.setFont(UITheme.FONT_BODY);
-        configureCopyLabel(lanIpLabel, "LAN IP: ");
-        configureCopyLabel(activeCodeLabel, "Exam code: ");
-
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
-        statusRow.setOpaque(false);
-        statusRow.add(statusLabel);
-        statusRow.add(lanIpLabel);
-        statusRow.add(activeCodeLabel);
 
         JPanel listCard = UITheme.card();
         listCard.setLayout(new BorderLayout(10, 12));
         JPanel top = new JPanel(new BorderLayout(0, 12));
         top.setOpaque(false);
         top.add(controlsRow, BorderLayout.NORTH);
-        top.add(statusRow, BorderLayout.SOUTH);
+        top.add(statusLabel, BorderLayout.SOUTH);
         listCard.add(top, BorderLayout.NORTH);
         listCard.add(studentScroll, BorderLayout.CENTER);
 
@@ -331,60 +313,28 @@ public class CentralMonitorPanel extends JPanel {
             return;
         }
         examCode = code;
-        boolean developmentPlaintext = CentralTls.plaintextDevModeEnabled();
         try {
             openFirewall();
-            if (!developmentPlaintext) {
-                statusLabel.setText("Preparing secure monitor certificate...");
-                statusLabel.setForeground(UITheme.TEXT_MUTED);
-            }
-            if (developmentPlaintext) {
-                // Explicit development opt-in only; production always uses TLS.
-                serverSocket = new ServerSocket();
-                serverSocket.setReuseAddress(true);
-                serverSocket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), CENTRAL_TCP_PORT));
-            } else {
-                serverSocket = CentralTls.newServerSocket(CENTRAL_TCP_PORT);
-            }
+            serverSocket = CentralTls.openServerSocket(CENTRAL_TCP_PORT);
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), CENTRAL_TCP_PORT));
             openCsv();
             running = true;
-            // The running monitor authenticates against the code captured at start;
-            // editing or shuffling it now would only confuse the session in flight.
-            codeField.setEnabled(false);
-            shuffle.setEnabled(false);
             acceptThread = new Thread(this::acceptLoop, "CheatGuard-CentralAccept");
             acceptThread.setDaemon(true);
             acceptThread.start();
-            if (developmentPlaintext) {
-                String ip = firstLanIp();
-                statusLabel.setText(CentralTls.plaintextWarning());
-                setCopyValue(lanIpLabel, "LAN IP: ", ip);
-                setCopyValue(activeCodeLabel, "Exam code: ", code);
-                statusLabel.setForeground(UITheme.WARN);
-            } else {
-                String ip = firstLanIp();
-                statusLabel.setText("TLS encrypted");
-                setCopyValue(lanIpLabel, "LAN IP: ", ip);
-                setCopyValue(activeCodeLabel, "Exam code: ", code);
-                statusLabel.setForeground(UITheme.ACCENT_TEAL);
-            }
+            statusLabel.setText("Your LAN IP: " + firstLanIp() + "  |  Exam code: " + code
+                    + "  |  Students must be on the SAME Wi-Fi/network as you.");
+            statusLabel.setForeground(UITheme.ACCENT_TEAL);
         } catch (Exception e) {
-            String detail = e.getMessage() == null ? e.toString() : e.getMessage();
-            stopMonitor(false);
-            statusLabel.setText("Could not start: " + detail
-                    + " (port already in use? keystore missing? See docs/CENTRAL_TLS.md)");
+            statusLabel.setText("Could not start: " + e.getMessage() + " (port already in use?)");
             statusLabel.setForeground(UITheme.ACCENT_RED);
+            stopMonitor();
         }
     }
 
     private synchronized void stopMonitor() {
-        stopMonitor(true);
-    }
-
-    private synchronized void stopMonitor(boolean showStatus) {
         running = false;
-        codeField.setEnabled(true);
-        shuffle.setEnabled(true);
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
         serverSocket = null;
         for (java.io.Closeable c : closables) {
@@ -394,34 +344,8 @@ public class CentralMonitorPanel extends JPanel {
         try { if (csvWriter != null) csvWriter.close(); } catch (Exception ignored) {}
         csvWriter = null;
         closeFirewall();
-        if (showStatus) {
-            statusLabel.setText("Monitor stopped.");
-            statusLabel.setForeground(UITheme.TEXT_MUTED);
-        }
-    }
-
-    private void configureCopyLabel(JLabel label, String prefix) {
-        label.setFont(UITheme.FONT_SECTION);
-        label.setForeground(UITheme.ACCENT_TEAL);
-        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        label.setToolTipText("Click to copy");
-        label.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
-                String value = label.getClientProperty("copyValue") instanceof String s ? s : "";
-                if (value.isBlank()) return;
-                Toolkit.getDefaultToolkit().getSystemClipboard()
-                        .setContents(new java.awt.datatransfer.StringSelection(value), null);
-                label.setText(prefix + value + "  (Copied)");
-                Timer timer = new Timer(1400, ev -> label.setText(prefix + value));
-                timer.setRepeats(false);
-                timer.start();
-            }
-        });
-    }
-
-    private void setCopyValue(JLabel label, String prefix, String value) {
-        label.putClientProperty("copyValue", value == null ? "" : value);
-        label.setText(prefix + (value == null ? "" : value));
+        statusLabel.setText("Monitor stopped.");
+        statusLabel.setForeground(UITheme.TEXT_MUTED);
     }
 
     // ----------------------------------------------------------- server I/O --
@@ -706,8 +630,7 @@ public class CentralMonitorPanel extends JPanel {
             File csvFile = new File(dir, "central-log-"
                     + new SimpleDateFormat("yyyyMMdd").format(new Date()) + ".csv");
             csvWriter = new BufferedWriter(new FileWriter(csvFile, true));
-            // Append mode: write the header only into a brand-new file, never again.
-            if (csvFile.length() == 0) csvWriter.write("time,pc,student,course,level,event\n");
+            csvWriter.write("time,pc,student,course,level,event\n");
         } catch (Exception e) {
             csvWriter = null;
         }
