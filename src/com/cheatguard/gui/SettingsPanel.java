@@ -106,7 +106,7 @@ public class SettingsPanel extends JPanel {
             try {
                 File target = new File(System.getProperty("java.io.tmpdir"),
                         "CheatGuard-Setup-" + u.version() + ".exe");
-                com.cheatguard.config.UpdateChecker.download(u.downloadUrl(), target, pct ->
+                com.cheatguard.config.UpdateChecker.downloadVerified(u, target, pct ->
                         javax.swing.SwingUtilities.invokeLater(() ->
                                 bar.setText("Downloading Cheat.Guard v" + u.version() + "... " + pct + "%")));
                 javax.swing.SwingUtilities.invokeLater(() -> {
