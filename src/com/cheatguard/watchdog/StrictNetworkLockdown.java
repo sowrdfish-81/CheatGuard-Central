@@ -391,6 +391,7 @@ public final class StrictNetworkLockdown implements Closeable {
                 "\"verifyHost\":\"" + jsonEscape(verifyHost) + "\",\n" +
                 "\"centralIpFile\":\"" + jsonEscape(centralIpFile.getAbsolutePath()) + "\",\n" +
                 "\"centralPort\":" + 47821 + ",\n" +
+                "\"lockPathsFile\":\"" + jsonEscape(lockPathsFile.getAbsolutePath()) + "\",\n" +
                 "\"lockStatusFile\":\"" + jsonEscape(lockStatusFile.getAbsolutePath()) + "\",\n" +
                 "\"userSidForLocks\":\"" + jsonEscape(sid) + "\",\n" +
                 "\"stateFile\":\"" + jsonEscape(state.getAbsolutePath()) + "\",\n" +
