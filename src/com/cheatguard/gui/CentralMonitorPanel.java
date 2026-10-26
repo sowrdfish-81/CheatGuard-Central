@@ -327,12 +327,20 @@ public class CentralMonitorPanel extends JPanel {
         } catch (Exception e) {
             statusLabel.setText("Could not start: " + e.getMessage() + " (port already in use?)");
             statusLabel.setForeground(UITheme.ACCENT_RED);
-            stopMonitor();
+            // Clean up a partially opened firewall/socket/CSV without replacing
+            // the actionable startup error with the generic "Monitor stopped".
+            cleanupMonitorResources();
         }
     }
 
     private synchronized void stopMonitor() {
         running = false;
+        cleanupMonitorResources();
+        statusLabel.setText("Monitor stopped.");
+        statusLabel.setForeground(UITheme.TEXT_MUTED);
+    }
+
+    private void cleanupMonitorResources() {
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
         serverSocket = null;
         for (java.io.Closeable c : closables) {
@@ -342,8 +350,6 @@ public class CentralMonitorPanel extends JPanel {
         try { if (csvWriter != null) csvWriter.close(); } catch (Exception ignored) {}
         csvWriter = null;
         closeFirewall();
-        statusLabel.setText("Monitor stopped.");
-        statusLabel.setForeground(UITheme.TEXT_MUTED);
     }
 
     // ----------------------------------------------------------- server I/O --
