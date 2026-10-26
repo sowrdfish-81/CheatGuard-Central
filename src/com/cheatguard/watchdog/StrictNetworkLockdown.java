@@ -380,7 +380,7 @@ public final class StrictNetworkLockdown implements Closeable {
         String verifyHost = firstAllowedSite();
         String json = "{\n" +
                 "\"parentPid\":" + currentPid() + ",\n" +
-                "\"parentName\":" + jsonEscape(parentName()) + "\",\n" +
+                "\"parentName\":\"" + jsonEscape(parentName()) + "\",\n" +
                 "\"dnsPort\":" + DnsAllowlistServer.DNS_PORT + ",\n" +
                 "\"dnsIpv6\":" + dnsIpv6 + ",\n" +
                 "\"userSid\":\"" + jsonEscape(sid) + "\",\n" +
