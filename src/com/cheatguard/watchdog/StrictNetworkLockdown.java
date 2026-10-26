@@ -613,6 +613,9 @@ public final class StrictNetworkLockdown implements Closeable {
      * This works on machines where Windows Script Host is disabled by policy.
      */
     private static void launchElevatedStatic(File helper, File config, boolean recoverOnly) throws IOException {
+        File launchLog = new File(config.getParentFile(), "helper-launch.log");
+        try { Files.writeString(launchLog.toPath(), "Launching elevated helper at " + java.time.Instant.now() + System.lineSeparator(), StandardCharsets.UTF_8); }
+        catch (Exception ignored) { }
         String helperPath = psSingleQuote(helper.getAbsolutePath());
         String configPath = psSingleQuote(config.getAbsolutePath());
         String workDir = psSingleQuote(helper.getParentFile().getAbsolutePath());
@@ -630,7 +633,7 @@ public final class StrictNetworkLockdown implements Closeable {
                 "$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File','" + helperPath +
                 "','-Config','" + configPath + "'" + recoverArg + "); " +
                 "$p=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs " +
-                "-WindowStyle Hidden -WorkingDirectory '" + workDir + "' -ArgumentList $args -PassThru; " +
+                "-WorkingDirectory '" + workDir + "' -ArgumentList $args -PassThru; " +
                 "if($null -eq $p){ throw 'Could not start elevated network helper.' }";
 
         Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command)
@@ -661,6 +664,8 @@ public final class StrictNetworkLockdown implements Closeable {
             if (detail.isEmpty()) detail = "The elevated network helper did not launch (UAC declined or blocked). Check error.txt and Windows Event Viewer.";
             throw new IOException(detail);
         }
+        try { Files.writeString(launchLog.toPath(), "Elevated helper accepted by Windows at " + java.time.Instant.now() + System.lineSeparator(), StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND); }
+        catch (Exception ignored) { }
         // Launch succeeded; actual readiness/failure of network-lockdown.ps1 itself
         // is now reported via ready.marker / error.txt, which start() already polls.
     }
