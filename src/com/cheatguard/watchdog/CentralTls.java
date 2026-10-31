@@ -155,7 +155,11 @@ public final class CentralTls {
             File cert = File.createTempFile("cheatguard-central-", ".cer", dir);
             try {
                 runKeytool(keytool, "-exportcert", "-alias", "central", "-rfc", "-keystore", key.getAbsolutePath(), "-storepass", password, "-file", cert.getAbsolutePath());
-                runKeytool(keytool, "-importcert", "-alias", "central", "-file", cert.getAbsolutePath(), "-keystore", trust.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", DEFAULT_TRUSTSTORE_PASSWORD, "-noprompt");
+                // The truststore must use the same managed password that clients
+                // will read it with: storePassword(false) resolves to the config
+                // value persisted below, so importing with the hard-coded default
+                // would make every local client fail to open the truststore.
+                runKeytool(keytool, "-importcert", "-alias", "central", "-file", cert.getAbsolutePath(), "-keystore", trust.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", password, "-noprompt");
             } finally { Files.deleteIfExists(cert.toPath()); }
             AppConfig.getInstance().setConfigValue(STOREPASS_CONFIG, password);
         } catch (InterruptedException e) {

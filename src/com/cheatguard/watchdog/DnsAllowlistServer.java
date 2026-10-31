@@ -348,9 +348,12 @@ public final class DnsAllowlistServer implements Closeable {
             if (next < 0) return out;
             pos = next + 4; // QTYPE + QCLASS
         }
-        for (int i = 0; i < answers && pos + 10 <= msg.length; i++) {
+        for (int i = 0; i < answers; i++) {
             int next = skipName(msg, pos);
             if (next < 0) return out;
+            // The fixed RR header follows the owner name, so re-check the bound
+            // after the name was skipped; truncated replies must not throw.
+            if (next + 10 > msg.length) return out;
             pos = next;
             int type = ((msg[pos] & 0xFF) << 8) | (msg[pos + 1] & 0xFF);
             int rdlength = ((msg[pos + 8] & 0xFF) << 8) | (msg[pos + 9] & 0xFF);
@@ -421,7 +424,9 @@ public final class DnsAllowlistServer implements Closeable {
             if (pos + len > msg.length) return -1;
             pos += len;
         }
-        if (pos + 4 > msg.length) return -1;
+        if (pos >= msg.length) return -1;
+        pos++; // skip the 0x00 root-label terminator; QTYPE starts right after it
+        if (pos + 2 > msg.length) return -1;
         return ((msg[pos] & 0xFF) << 8) | (msg[pos + 1] & 0xFF);
     }
 

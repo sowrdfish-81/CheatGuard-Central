@@ -14,7 +14,10 @@ public class ExternalDeviceMonitor {
 
     private final Map<String, String> known = new LinkedHashMap<>();
 
-    public ExternalDeviceMonitor() { known.putAll(snapshot()); }
+    public ExternalDeviceMonitor() {
+        Map<String, String> initial = snapshot();
+        if (initial != null) known.putAll(initial);
+    }
 
     /** Devices that were already connected before monitoring started. */
     public synchronized List<String> getPresentRiskDevices() {
@@ -25,14 +28,23 @@ public class ExternalDeviceMonitor {
     public synchronized List<String> checkForNewRiskDevices() {
         Map<String, String> current = snapshot();
         List<String> added = new ArrayList<>();
-        for (Map.Entry<String, String> e : current.entrySet()) {
-            if (!known.containsKey(e.getKey())) added.add(e.getValue());
+        if (current != null) {
+            for (Map.Entry<String, String> e : current.entrySet()) {
+                if (!known.containsKey(e.getKey())) added.add(e.getValue());
+            }
+            known.clear();
+            known.putAll(current);
         }
-        known.clear();
-        known.putAll(current);
+        // A failed scan returns null and leaves the baseline untouched; treating
+        // the empty result as "no devices" would report every already-present
+        // device as newly attached on the next successful scan.
         return added;
     }
 
+    /**
+     * Current risk devices, keyed by type|id. Returns {@code null} when the scan
+     * itself failed — an empty map would be indistinguishable from "no devices".
+     */
     private Map<String, String> snapshot() {
         Map<String, String> devices = new LinkedHashMap<>();
         try {
@@ -56,6 +68,7 @@ public class ExternalDeviceMonitor {
             p.waitFor();
         } catch (Exception e) {
             AppLog.warn("External device scan error: " + e);
+            return null; // scan failed: do not let it erase the baseline
         }
         return devices;
     }

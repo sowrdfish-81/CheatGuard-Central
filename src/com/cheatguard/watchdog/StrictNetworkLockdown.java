@@ -208,6 +208,13 @@ public final class StrictNetworkLockdown implements Closeable {
             String script = "$ErrorActionPreference='SilentlyContinue';"
                     + "Get-DnsClientServerAddress -AddressFamily IPv4 | ForEach-Object { $_.ServerAddresses }";
             Process p = PowerShellUtil.start(script);
+            // Wait BEFORE reading: readLine blocks to EOF, so reading first would
+            // make the 8-second timeout unreachable if the probe ever hangs.
+            // Output is a handful of IP lines and cannot fill the pipe buffer.
+            if (!p.waitFor(8, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return new ArrayList<>(found);
+            }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -220,7 +227,6 @@ public final class StrictNetworkLockdown implements Closeable {
                     if (found.size() >= 4) break;
                 }
             }
-            if (!p.waitFor(8, TimeUnit.SECONDS)) p.destroyForcibly();
         } catch (Exception ignored) {
             // fall back to public resolvers
         }

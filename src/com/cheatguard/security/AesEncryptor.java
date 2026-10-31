@@ -85,7 +85,9 @@ public class AesEncryptor {
 
     private byte[] decryptGcm(byte[] fileBytes, char[] password) throws Exception {
         int header = GCM_MAGIC.length + SALT_BYTES + NONCE_BYTES;
-        if (fileBytes.length <= header + 16) {
+        // A legitimately empty plaintext is exactly header + 16 (nonce + tag);
+        // "<=" would make such a vault impossible to ever open again.
+        if (fileBytes.length < header + 16) {
             throw new IllegalStateException("Vault file is truncated or not a Cheat.Guard vault.");
         }
         byte[] salt = Arrays.copyOfRange(fileBytes, GCM_MAGIC.length, GCM_MAGIC.length + SALT_BYTES);

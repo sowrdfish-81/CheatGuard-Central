@@ -22,9 +22,15 @@ public class SiteMonitor {
                     "foreach($e in $edits){$n=$e.Current.Name;if($n -match '(?i)address|location|url'){try{$vp=$e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern);$v=$vp.Current.Value;if($v){$url=$v;break}}catch{}}}}catch{};" +
                     "$p.Id.ToString() + '@@@' + $p.ProcessName + '@@@' + $p.MainWindowTitle + '@@@' + $url}";
             Process p = PowerShellUtil.start(ps);
+            // The script prints its single result line just before exiting, so
+            // waiting first is safe; readLine()/waitFor() unbounded would hang the
+            // watchdog scan thread forever if the probe ever stalls.
+            if (!p.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return null;
+            }
             String line;
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) { line = r.readLine(); }
-            p.waitFor();
             if (line == null) return null;
             String[] parts = line.split("@@@", 4);
             if (parts.length < 2) return null;

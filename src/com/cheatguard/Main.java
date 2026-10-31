@@ -32,6 +32,7 @@ import java.io.File;
 import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -148,10 +149,14 @@ public class Main {
         }
 
         String profile = System.getenv("USERPROFILE");
-        StringBuilder argList = new StringBuilder();
+        // Start-Process joins -ArgumentList elements with spaces and adds no
+        // quoting of its own, so each path element carries embedded escaped
+        // double quotes: the elevated process receives ONE argument per path
+        // even when it contains spaces.
+        List<String> relayArgs = new ArrayList<>();
         if (profile != null && !profile.isBlank()) {
-            argList.append(" -ArgumentList '-interactiveProfile','")
-                   .append(profile.replace("'", "''")).append('\'');
+            relayArgs.add("-interactiveProfile");
+            relayArgs.add("\"" + profile.replace("'", "''") + "\"");
         }
         // Capture the signed-in user's real Desktop while still unelevated: on
         // OneDrive-redirected machines it is not <profile>\Desktop, and guessing
@@ -159,12 +164,12 @@ public class Main {
         try {
             File desktopNow = com.cheatguard.config.AppPaths.getDesktopDirectory();
             if (desktopNow != null && desktopNow.isDirectory()) {
-                if (argList.length() == 0) argList.append(" -ArgumentList");
-                argList.append(",'-interactiveDesktop','")
-                       .append(desktopNow.getAbsolutePath().replace("'", "''")).append('\'');
+                relayArgs.add("-interactiveDesktop");
+                relayArgs.add("\"" + desktopNow.getAbsolutePath().replace("'", "''") + "\"");
             }
         } catch (Exception ignored) {
         }
+        String argList = relayArgs.isEmpty() ? "" : " -ArgumentList '" + String.join("','", relayArgs) + "'";
         String command = "$p=Start-Process -FilePath '" + exe.getAbsolutePath().replace("'", "''")
                 + "'" + argList + " -Verb RunAs -PassThru; if($null -eq $p){ exit 1 }";
         try {
@@ -647,11 +652,15 @@ public class Main {
         } else {
             JLabel elapsed = UITheme.muted("Running 00:00:00");
             // Self-stopping: the tick ends once the monitor screen is no longer on
-            // display (session ended), so no timer outlives its card.
+            // display while the window is actually visible (session ended), so no
+            // timer outlives its card. A hidden window (minimize-to-tray) must NOT
+            // stop the clock: nothing restarts it and the elapsed time would freeze.
             javax.swing.Timer clock = new javax.swing.Timer(1000, ev -> {
                 long sec = Duration.between(session.getStartTime(), LocalDateTime.now()).getSeconds();
                 elapsed.setText(String.format("Running %02d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60));
-                if (!elapsed.isShowing()) ((javax.swing.Timer) ev.getSource()).stop();
+                if (!elapsed.isShowing() && frame.isVisible()) {
+                    ((javax.swing.Timer) ev.getSource()).stop();
+                }
             });
             clock.setInitialDelay(0);
             clock.start();
@@ -1100,6 +1109,18 @@ public class Main {
                         SwingUtilities.invokeLater(() -> bar.setText(
                                 "Downloading Cheat.Guard v" + info.version() + "... " + pct + "%")));
                 SwingUtilities.invokeLater(() -> {
+                    // The download can take minutes: the invigilator may have started
+                    // an exam session since saying Yes. Exiting now would kill the
+                    // lockdown, the watchdog and the audit seal mid-exam.
+                    if (activeSession != null || sessionBusy) {
+                        progress.dispose();
+                        JOptionPane.showMessageDialog(frame,
+                                "Update downloaded, but an exam session is running. "
+                                        + "Install it after the session ends (the file is at: "
+                                        + target.getAbsolutePath() + ").",
+                                "Update postponed", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
                     progress.dispose();
                     JOptionPane.showMessageDialog(frame,
                             "Update downloaded. Cheat.Guard will now close and the installer will run.",

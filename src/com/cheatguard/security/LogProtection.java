@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -60,15 +61,29 @@ public final class LogProtection {
 
         try {
             File done = doneFile();
-            done.delete();
+            // A stale done file from an earlier request would make this call
+            // return true before the helper has done anything.
+            if (done.exists() && !done.delete()) return false;
             StringBuilder sb = new StringBuilder();
             for (File f : existing) sb.append(f.getAbsolutePath()).append(System.lineSeparator());
-            Files.writeString(requestFile().toPath(), sb.toString(), StandardCharsets.UTF_8);
+            // Write to a temp file and move atomically: the helper polls for the
+            // request every 500 ms and must never read a half-written file.
+            File request = requestFile();
+            File staged = new File(request.getParentFile(), REQUEST + ".tmp");
+            Files.writeString(staged.toPath(), sb.toString(), StandardCharsets.UTF_8);
+            try {
+                Files.move(staged.toPath(), request.toPath(),
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception moveFailure) {
+                Files.move(staged.toPath(), request.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
 
             long deadline = System.currentTimeMillis() + 20_000L;
             while (System.currentTimeMillis() < deadline) {
                 if (done.exists()) {
-                    done.delete();
+                    if (!done.delete()) break; // cannot confirm cleanly
                     return true;
                 }
                 Thread.sleep(200L);
@@ -104,16 +119,24 @@ public final class LogProtection {
             String inner = "$l='" + list.toAbsolutePath().toString().replace("'", "''") + "';"
                     + "foreach($p in Get-Content -LiteralPath $l){"
                     + "if($p.Trim()){"
-                    + "takeown /F \\\"$p\\\" /A | Out-Null;"
-                    + "icacls \\\"$p\\\" /grant *S-1-5-32-544:(F) | Out-Null;"
+                    + "takeown /F \"$p\" /A | Out-Null;"
+                    + "icacls \"$p\" /grant *S-1-5-32-544:(F) | Out-Null;"
                     + "Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue}};"
                     + "Remove-Item -LiteralPath $l -Force -ErrorAction SilentlyContinue";
 
-            String outer = "$ErrorActionPreference='Stop';"
-                    + "$p=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs "
+            // The inner script travels base64-encoded (-EncodedCommand, UTF-16LE).
+            // Nesting it inside a double-quoted outer string cannot work: in
+            // PowerShell, backslash escapes nothing, so every \" in the inner
+            // script would terminate the outer string and the elevated child
+            // would receive a broken script.
+            String encoded = Base64.getEncoder().encodeToString(
+                    inner.getBytes(StandardCharsets.UTF_16LE));
+
+            String outer = "$p=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs "
                     + "-WindowStyle Hidden -PassThru -Wait "
-                    + "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command',\"" + inner + "\";"
-                    + "if($null -eq $p){ throw 'not started' }";
+                    + "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','" + encoded + "';"
+                    + "if($null -eq $p){ throw 'not started' }"
+                    + "exit $p.ExitCode;";
 
             Process p = new ProcessBuilder("powershell.exe", "-NoProfile",
                     "-ExecutionPolicy", "Bypass", "-Command", outer)

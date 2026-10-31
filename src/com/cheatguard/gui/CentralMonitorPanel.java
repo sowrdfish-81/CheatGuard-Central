@@ -243,6 +243,10 @@ public class CentralMonitorPanel extends JPanel {
         markCheatBtn.setBorderPainted(false);
         markCheatBtn.setFont(UITheme.FONT_SECTION);
         markClearedBtn = UITheme.secondary("Mark: cleared");
+        // Verdict buttons: without these listeners the whole verdict workflow
+        // (applyVerdict -> CSV row -> CHEAT CONFIRMED ranking) was unreachable.
+        markCheatBtn.addActionListener(e -> applyVerdict("CHEAT CONFIRMED"));
+        markClearedBtn.addActionListener(e -> applyVerdict("CLEARED"));
         JPanel verdicts = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         verdicts.setOpaque(false);
         verdicts.add(markClearedBtn);
@@ -315,6 +319,7 @@ public class CentralMonitorPanel extends JPanel {
         examCode = code;
         try {
             openFirewall();
+            ensureFirewallShutdownHook();
             serverSocket = CentralTls.openServerSocket(CENTRAL_TCP_PORT);
             openCsv();
             running = true;
@@ -511,7 +516,10 @@ public class CentralMonitorPanel extends JPanel {
         if (row < 0 || row >= studentModel.getRowCount()) return;
         String student = String.valueOf(studentModel.getValueAt(row, 0));
         String pc = String.valueOf(studentModel.getValueAt(row, 1));
-        StudentRecord rec = students.get(keyOf(pc, student));
+        StudentRecord rec;
+        synchronized (students) {
+            rec = students.get(keyOf(pc, student));
+        }
         if (rec == null) return;
         synchronized (rec) {
             detailStudent = rec;
@@ -627,6 +635,27 @@ public class CentralMonitorPanel extends JPanel {
         }
     }
 
+    /**
+     * The inbound monitor allow rule is persistent. If the invigilator exits the
+     * whole app (Exit / window X / update restart) without pressing Back, nothing
+     * else removes it — so a JVM shutdown hook deletes the rule whenever it was
+     * added and still set.
+     */
+    private static boolean firewallHookInstalled;
+
+    private void ensureFirewallShutdownHook() {
+        synchronized (CentralMonitorPanel.class) {
+            if (firewallHookInstalled) return;
+            firewallHookInstalled = true;
+        }
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                if (firewallRuleAdded) closeFirewall();
+            } catch (Exception ignored) {
+            }
+        }, "CheatGuard-CentralFirewallCleanup"));
+    }
+
     private void openCsv() {
         try {
             File dir = new File(System.getProperty("user.home"), "CheatGuard-Central");
@@ -655,6 +684,13 @@ public class CentralMonitorPanel extends JPanel {
 
     private static String csv(String v) {
         String s = v == null ? "" : v.replace("\"", "'").replace("\n", " ").replace("\r", " ");
+        // Event fields come from unauthenticated student PCs. A cell starting
+        // with = + - or @ executes as a formula when the invigilator opens the
+        // CSV in Excel, so neutralize it with a leading apostrophe.
+        if (s.startsWith("=") || s.startsWith("+") || s.startsWith("-") || s.startsWith("@")
+                || s.startsWith("\t")) {
+            s = "'" + s;
+        }
         return "\"" + s + "\"";
     }
 
@@ -673,10 +709,15 @@ public class CentralMonitorPanel extends JPanel {
                     "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } "
                             + "| Select-Object -First 1).IPv4Address.IPAddress")
                     .redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(),
-                    StandardCharsets.UTF_8).trim();
-            p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
-            if (out.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return out;
+            // Wait BEFORE reading: readAllBytes blocks until EOF, so reading first
+            // would make this timeout unreachable. Output is one IP line.
+            if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+            } else {
+                String out = new String(p.getInputStream().readAllBytes(),
+                        StandardCharsets.UTF_8).trim();
+                if (out.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return out;
+            }
         } catch (Exception ignored) {
         }
         try {

@@ -320,7 +320,11 @@ public class WatchdogEngine implements Runnable {
     }
 
     /** Drive paths appearing inside window titles, e.g. "C:\notes\a.txt - Editor". */
-    private static final Pattern TITLE_PATH = Pattern.compile("[A-Za-z]:[\\\\/][^|<>?\"]*");
+    private static final Pattern TITLE_PATH =
+            // The lookbehind keeps URLs out: without it the "s:" of "https://..."
+            // matches as a drive path and an allowed app showing a link in its
+            // title is falsely closed.
+            Pattern.compile("(?<![A-Za-z0-9])[A-Za-z]:[\\\\/][^|<>?\"]*");
 
     /**
      * An ALLOWED app is only allowed to work on the exam folder. If its window
@@ -337,14 +341,31 @@ public class WatchdogEngine implements Runnable {
     /** First drive path in the title that lives OUTSIDE the given folder, or null. */
     public static String titlePathOutside(String title, String baseFolder) {
         if (title == null || title.isBlank() || baseFolder == null || baseFolder.isBlank()) return null;
-        String base = baseFolder.toLowerCase(Locale.ROOT);
-        if (!base.endsWith(File.separator)) base = base + File.separator;
+        String lower = baseFolder.toLowerCase(Locale.ROOT);
+        String bareBase = lower.endsWith(File.separator)
+                ? lower.substring(0, lower.length() - 1) : lower;
+        String base = bareBase + File.separator;
         Matcher m = TITLE_PATH.matcher(title);
         while (m.find()) {
-            String candidate = m.group();
-            if (!candidate.toLowerCase(Locale.ROOT).startsWith(base)) return candidate;
+            String candidate = m.group().toLowerCase(Locale.ROOT);
+            // Files inside the exam folder are clean; the folder path itself is
+            // clean too. The bare match must end on a non-path boundary so a
+            // sibling folder (Exam_1-backup, Exam_10) is still flagged.
+            if (candidate.startsWith(base)) continue;
+            if (candidate.startsWith(bareBase)) {
+                if (candidate.length() == bareBase.length()
+                        || !isPathNameChar(candidate.charAt(bareBase.length()))) {
+                    continue;
+                }
+            }
+            return m.group();
         }
         return null;
+    }
+
+    private static boolean isPathNameChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '.' || c == '-'
+                || c == '\\' || c == '/';
     }
 
     /**
@@ -457,11 +478,15 @@ public class WatchdogEngine implements Runnable {
             if (skip) continue;
 
             stillVisibleBlocked.add(proc.getPid());
-            if (recentlyBlockedPids.contains(proc.getPid())) continue;
+            // Termination is retried every cycle; only the log line is deduped.
+            // Skipping the kill for already-seen PIDs would leave an unauthorized
+            // app alive for the whole session after one transient taskkill failure.
+            boolean alreadyBlocked = recentlyBlockedPids.contains(proc.getPid());
 
             boolean gone = ProcessHandle.of(proc.getPid()).map(ph -> !ph.isAlive()).orElse(true);
             boolean closed = controller.terminate(proc.getPid()) || gone;
             String app = ProcessWhitelist.friendlyName(proc.getName());
+            if (alreadyBlocked) continue;
 
             if (outsidePath != null) {
                 emit(closed

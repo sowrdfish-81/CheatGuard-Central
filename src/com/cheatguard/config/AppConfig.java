@@ -78,11 +78,13 @@ public class AppConfig {
     private void load() {
         Properties props = new Properties();
         if (configFile.exists()) {
-            try (FileInputStream fis = new FileInputStream(configFile)) {
-                props.load(fis);
-            } catch (IOException e) {
-                AppLog.warn("Could not read config: " + e.getMessage());
-            }
+        try (FileInputStream fis = new FileInputStream(configFile)) {
+            props.load(fis);
+        } catch (IOException | IllegalArgumentException e) {
+            // IllegalArgumentException: malformed unicode escape — a corrupt file
+            // must fall back to defaults, not crash startup.
+            AppLog.warn("Could not read config: " + e.getMessage());
+        }
         }
         String procs = props.getProperty("allowed.processes", "");
         String sites = props.getProperty("allowed.sites", "");
@@ -308,7 +310,8 @@ public class AppConfig {
         java.util.Properties p = new java.util.Properties();
         try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
             p.load(fis);
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
+            // IllegalArgumentException: malformed unicode escape in a corrupt profile.
             AppLog.warn("Could not read profile: " + e.getMessage());
             return;
         }
@@ -479,10 +482,12 @@ public class AppConfig {
         v = v.replaceFirst("^www\\.", "");
         while (v.endsWith(".")) v = v.substring(0, v.length() - 1);
         try { v = IDN.toASCII(v); } catch (Exception ignored) {}
-        // Require at least one dot and a letters-only TLD. Without this a bare entry
+        // Require at least one dot and a plausible TLD. Without this a bare entry
         // such as "com" would make isSiteAllowed() accept nearly every domain, because
-        // matching also accepts subdomains of an allowed entry.
-        return v.matches("([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}") ? v : "";
+        // matching also accepts subdomains of an allowed entry. The TLD may contain
+        // digits and hyphens so punycode (xn--p1ai) IDN domains pass: after
+        // IDN.toASCII an internationalized TLD is not letters-only.
+        return v.matches("([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+([a-z]{2,}|xn--[a-z0-9-]{2,59})") ? v : "";
     }
 
     private String normalizeProcess(String value) {

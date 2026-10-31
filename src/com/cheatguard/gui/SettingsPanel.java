@@ -110,6 +110,19 @@ public class SettingsPanel extends JPanel {
                         javax.swing.SwingUtilities.invokeLater(() ->
                                 bar.setText("Downloading Cheat.Guard v" + u.version() + "... " + pct + "%")));
                 javax.swing.SwingUtilities.invokeLater(() -> {
+                    // The download can take minutes: a session may have started
+                    // since the update was accepted. Exiting now would kill the
+                    // lockdown, the watchdog and the audit seal mid-exam.
+                    if (sessionActive.getAsBoolean()) {
+                        progress.dispose();
+                        setEnabled(true);
+                        JOptionPane.showMessageDialog(this,
+                                "Update downloaded, but an exam session is running. "
+                                        + "Install it after the session ends (the file is at: "
+                                        + target.getAbsolutePath() + ").",
+                                "Update postponed", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
                     progress.dispose();
                     JOptionPane.showMessageDialog(this,
                             "Update downloaded. Cheat.Guard will now close and the installer will run.",
@@ -354,9 +367,14 @@ public class SettingsPanel extends JPanel {
                     "(Get-Item '" + exe.getAbsolutePath().replace("'", "''")
                             + "').VersionInfo.ProductName")
                     .redirectErrorStream(true).start();
+            // Wait BEFORE reading: readAllBytes blocks until EOF, so the timeout
+            // would never fire. Output is one short line.
+            if (!p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return null;
+            }
             String out = new String(p.getInputStream().readAllBytes(),
                     java.nio.charset.StandardCharsets.UTF_8).trim();
-            p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
             if (!out.isBlank() && !out.toLowerCase().contains("error")) return out;
         } catch (Exception ignored) {
         }

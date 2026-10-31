@@ -47,7 +47,17 @@ public class SecurityVault {
     private void seal(File plaintextLogFile, char[] adminPassword) throws Exception {
         if (!plaintextLogFile.exists()) throw new IllegalStateException("Session log file is missing.");
 
-        File vaultFile = new File(plaintextLogFile.getParent(), plaintextLogFile.getName().replace(".dat", ".vault"));
+        String name = plaintextLogFile.getName();
+        String lower = name.toLowerCase();
+        // .dat is accepted case-insensitively above, so derive the vault name the
+        // same way; a case-sensitive replace on SESSION.DAT would make vaultFile
+        // the plaintext file itself and the delete below would destroy the log.
+        File vaultFile = lower.endsWith(".dat")
+                ? new File(plaintextLogFile.getParent(), name.substring(0, name.length() - 4) + ".vault")
+                : new File(plaintextLogFile.getParent(), name + ".vault");
+        if (vaultFile.getCanonicalFile().equals(plaintextLogFile.getCanonicalFile())) {
+            throw new IllegalStateException("Refusing to seal: vault path equals the plaintext log path.");
+        }
         encryptor.encryptFile(plaintextLogFile, vaultFile, adminPassword);
         String signature = AesEncryptor.isAuthenticatedFormat(vaultFile)
                 ? "gcm-v2"

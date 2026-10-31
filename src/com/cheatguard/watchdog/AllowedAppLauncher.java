@@ -47,6 +47,25 @@ public final class AllowedAppLauncher {
         return Arrays.asList(examFolder.getAbsolutePath());
     }
 
+    /**
+     * Join launch arguments for a .lnk Arguments string. Path arguments must be
+     * quoted: a .lnk Arguments field is re-parsed by the target through
+     * CommandLineToArgvW, so "C:\Exams\John Doe" unquoted arrives as three
+     * arguments and the editor opens (and creates) the wrong folder.
+     */
+    private static String joinShortcutArguments(List<String> parts) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (sb.length() > 0) sb.append(' ');
+            if (part.startsWith("-")) {
+                sb.append(part);
+            } else {
+                sb.append('"').append(part).append('"');
+            }
+        }
+        return sb.toString();
+    }
+
     private AllowedAppLauncher() {
     }
 
@@ -118,7 +137,7 @@ public final class AllowedAppLauncher {
             String args = AppConfig.getInstance().getProcessArgs(name);
             if (args == null || args.isBlank()) {
                 args = FOLDER_AWARE.contains(name)
-                        ? String.join(" ", folderOpenArguments(name, examFolder))
+                        ? joinShortcutArguments(folderOpenArguments(name, examFolder))
                         : "";
             }
             String ps = "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('"
@@ -130,8 +149,14 @@ public final class AllowedAppLauncher {
             Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
                     "-WindowStyle", "Hidden", "-Command", ps)
                     .redirectErrorStream(true).start();
+            // Wait BEFORE reading: readAllBytes blocks until EOF, so a hung child
+            // would bypass the timeout entirely. Output is tiny (a save result),
+            // it cannot fill the pipe buffer while we wait.
+            if (!p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return null;
+            }
             p.getInputStream().readAllBytes();
-            p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
             return lnk.isFile() ? lnk : null;
         } catch (Exception e) {
             return null;
@@ -162,11 +187,14 @@ public final class AllowedAppLauncher {
     private static File fromWhere(String name) {
         try {
             Process p = new ProcessBuilder("where", name).redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            // Wait BEFORE reading; readAllBytes before waitFor can never time out.
+            // "where" writes only a handful of lines, so waiting first cannot
+            // deadlock on a full pipe.
             if (!p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
                 p.destroyForcibly();
                 return null;
             }
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             for (String line : out.split("\\R")) {
                 File f = new File(line.trim());
                 if (f.isFile()) return f;

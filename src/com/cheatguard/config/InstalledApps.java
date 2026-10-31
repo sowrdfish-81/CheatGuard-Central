@@ -52,12 +52,19 @@ public final class InstalledApps {
                 + "Write-Output $s.TargetPath; Write-Output $s.Arguments";
         String[] out = {"", ""};
         try {
+            // Keep stderr separate: a merged COM error line would otherwise land
+            // in out[0]/out[1] and be stored as the shortcut's target/arguments.
             Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
                     "-WindowStyle", "Hidden", "-Command", script)
-                    .redirectErrorStream(true).start();
+                    .start();
+            // Wait BEFORE reading: readAllBytes blocks until EOF, so the 15-second
+            // timeout below would never fire. Output is two short lines.
+            if (!p.waitFor(15, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return out;
+            }
             String all = new String(p.getInputStream().readAllBytes(),
                     java.nio.charset.StandardCharsets.UTF_8).trim();
-            p.waitFor(15, TimeUnit.SECONDS);
             String[] lines = all.split("\\R");
             if (lines.length >= 1) out[0] = lines[0].trim();
             if (lines.length >= 2) out[1] = lines[1].trim();

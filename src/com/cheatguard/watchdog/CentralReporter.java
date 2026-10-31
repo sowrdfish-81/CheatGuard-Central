@@ -49,6 +49,7 @@ public final class CentralReporter {
     private final String examCode;
     private volatile boolean running;
     private volatile boolean stopping;
+    private volatile Socket activeSocket;
     private Thread worker;
 
     public CentralReporter(ExamSession session) {
@@ -95,17 +96,27 @@ public final class CentralReporter {
         stopping = true;
         running = false;
         if (worker != null) worker.interrupt();
+        // A thread blocked in readLine() waiting for the challenge never notices
+        // the interrupt (plain sockets have no read timeout), so close the
+        // connection out from under it to unblock the loop.
+        Socket live = activeSocket;
+        if (live != null) {
+            try {
+                live.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** Queue one violation for the invigilator; drops the oldest when overflowing. */
     public void report(Violation v) {
         if (!running || v == null) return;
         String line = System.currentTimeMillis()
-                + "@@@" + hostPc
-                + "@@@" + session.getStudentId()
-                + "@@@" + session.getCourseCode()
+                + "@@@" + sanitize(hostPc)
+                + "@@@" + sanitize(session.getStudentId())
+                + "@@@" + sanitize(session.getCourseCode())
                 + "@@@" + v.getSeverity().name()
-                + "@@@" + v.getType()
+                + "@@@" + sanitize(v.getType())
                 + "@@@" + sanitize(v.getDescription())
                 + "@@@" + sanitize(LogDisplayHelper.display(v));
         synchronized (queue) {
@@ -135,8 +146,13 @@ public final class CentralReporter {
             String host = centralHost;
             if (host.isEmpty()) break;
             try (Socket socket = CentralTls.openClientSocket(host, CENTRAL_TCP_PORT)) {
-                socket.connect(new InetSocketAddress(host, CENTRAL_TCP_PORT), 3000);
-                if (socket instanceof javax.net.ssl.SSLSocket ssl) ssl.startHandshake();
+                activeSocket = socket;
+                // In TLS mode openClientSocket already connected and handshaken;
+                // connecting again throws SocketException("already connected").
+                if (!socket.isConnected()) {
+                    socket.connect(new InetSocketAddress(host, CENTRAL_TCP_PORT), 3000);
+                    if (socket instanceof javax.net.ssl.SSLSocket ssl) ssl.startHandshake();
+                }
                 OutputStream out = socket.getOutputStream();
                 BufferedReader in = new BufferedReader(
                         new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
@@ -145,8 +161,8 @@ public final class CentralReporter {
                     throw new java.io.IOException("Central monitor did not issue a challenge");
                 }
                 String nonce = challenge.substring("CHALLENGE@@@".length()).trim();
-                String hello = "HELLO@@@" + hostPc + "@@@" + session.getStudentId()
-                        + "@@@" + session.getCourseCode();
+                String hello = "HELLO@@@" + sanitize(hostPc) + "@@@" + sanitize(session.getStudentId())
+                        + "@@@" + sanitize(session.getCourseCode());
                 String auth = "AUTH@@@" + CentralAuth.response(examCode, nonce, hostPc,
                         session.getStudentId(), session.getCourseCode());
                 out.write((hello + "\n" + auth + "\n").getBytes(StandardCharsets.UTF_8));
