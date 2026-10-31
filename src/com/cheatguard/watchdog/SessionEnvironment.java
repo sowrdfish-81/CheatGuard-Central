@@ -145,8 +145,15 @@ public final class SessionEnvironment {
     private static boolean run(String... command) {
         try {
             Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
+            // Bounded: these helpers run on the session-starter thread, where an
+            // unbounded wait wedges sessionBusy (and every later session action)
+            // until the app is killed. Output is tiny; waiting first is safe.
+            if (!p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return false;
+            }
             p.getInputStream().readAllBytes();
-            return p.waitFor() == 0;
+            return p.exitValue() == 0;
         } catch (Exception ignored) {
             // best effort; a clipboard tweak must never stop an exam
             return false;
@@ -156,9 +163,11 @@ public final class SessionEnvironment {
     private static String capture(String... command) {
         try {
             Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            p.waitFor();
-            return out;
+            if (!p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return "";
+            }
+            return new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         } catch (Exception e) {
             return "";
         }

@@ -155,11 +155,12 @@ public final class CentralTls {
             File cert = File.createTempFile("cheatguard-central-", ".cer", dir);
             try {
                 runKeytool(keytool, "-exportcert", "-alias", "central", "-rfc", "-keystore", key.getAbsolutePath(), "-storepass", password, "-file", cert.getAbsolutePath());
-                // The truststore must use the same managed password that clients
-                // will read it with: storePassword(false) resolves to the config
-                // value persisted below, so importing with the hard-coded default
-                // would make every local client fail to open the truststore.
-                runKeytool(keytool, "-importcert", "-alias", "central", "-file", cert.getAbsolutePath(), "-keystore", trust.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", password, "-noprompt");
+                // The truststore holds only a PUBLIC certificate, so its password
+                // adds no security: create it with the hard-coded default that
+                // every client can fall back to. Student PCs receive just the
+                // truststore (no config password), so a managed password here
+                // would make the truststore unreadable everywhere but this PC.
+                runKeytool(keytool, "-importcert", "-alias", "central", "-file", cert.getAbsolutePath(), "-keystore", trust.getAbsolutePath(), "-storetype", "PKCS12", "-storepass", DEFAULT_TRUSTSTORE_PASSWORD, "-noprompt");
             } finally { Files.deleteIfExists(cert.toPath()); }
             AppConfig.getInstance().setConfigValue(STOREPASS_CONFIG, password);
         } catch (InterruptedException e) {
@@ -271,7 +272,7 @@ public final class CentralTls {
                     + " (see docs/CENTRAL_TLS.md).");
         }
         try {
-            KeyStore trustStore = loadKeyStore(truststoreFile, storePassword(false));
+            KeyStore trustStore = loadTruststoreLeniently(truststoreFile);
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(
                     TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(trustStore);
@@ -355,6 +356,22 @@ public final class CentralTls {
     }
 
     // ----------------------------------------------------------- helpers ----
+
+    /**
+     * Open the truststore with whichever password was actually used to create it.
+     * A truststore holds only a public certificate, so its password is an
+     * integrity nicety, not a secret: it may carry the configured store password
+     * (this PC, where the config value exists) or the hard-coded default (a
+     * student PC that received only the truststore file, or the auto-provisioned
+     * truststore). Try the configured source first, then the default.
+     */
+    private static KeyStore loadTruststoreLeniently(File truststoreFile) throws IOException {
+        try {
+            return loadKeyStore(truststoreFile, storePassword(false));
+        } catch (Exception configuredFailed) {
+            return loadKeyStore(truststoreFile, DEFAULT_TRUSTSTORE_PASSWORD.toCharArray());
+        }
+    }
 
     private static KeyStore loadKeyStore(File file, char[] password) throws IOException {
         try (InputStream in = Files.newInputStream(file.toPath())) {

@@ -70,6 +70,7 @@ public class Main {
     private final SessionEnvironment sessionEnvironment = new SessionEnvironment();
 
     private ExamSession activeSession;
+    private boolean activeSessionEnded;
     private SecurityVault activeSecurityVault;
     private WatchdogEngine activeWatchdog;
     private Thread activeWatchdogThread;
@@ -468,6 +469,7 @@ public class Main {
         // Session record and log protection are quick and local; they happen here so
         // the monitor screen exists the moment the slow, elevated steps begin.
         activeSession = new ExamSession(course, studentId);
+        activeSessionEnded = false;
         activeSecurityVault = new SecurityVault(adminAuth);
         activeSecurityVault.beginProtection(activeSession.getSessionFile());
 
@@ -553,6 +555,7 @@ public class Main {
                     try { activeSecurityVault.abortProtection(); } catch (Exception ignored) {}
                     showLockdownFailure(finalLockdown.getLastError());
                     activeSession = null;
+                    activeSessionEnded = false;
                     activeSecurityVault = null;
                     activeNetworkLockdown = null;
                     showCard(CARD_HOME);
@@ -847,6 +850,8 @@ public class Main {
 
     private boolean finishActiveExam(char[] password) {
         if (activeSession == null) return true;
+        boolean sealed = false;
+        boolean hardened = false;
         try {
             if (activeWatchdog != null) activeWatchdog.stop();
             if (centralReporter != null) centralReporter.stop();
@@ -861,16 +866,29 @@ public class Main {
             }
 
             File sessionFile = activeSession.getSessionFile();
-            activeSession.endSession();
+            if (!activeSessionEnded) {
+                activeSession.endSession();
+                activeSessionEnded = true;
+            }
             activeSecurityVault.sealVault(sessionFile, password);
 
             // Harden the sealed files while the elevated helper is still running, so no
-            // extra UAC prompt is needed. Only then restore the network state.
-            File vault = new File(sessionFile.getParent(),
-                    sessionFile.getName().replace(".dat", ".vault"));
-            if (!LogProtection.protectViaHelper(List.of(vault, new File(vault.getAbsolutePath() + ".sig")))) {
-                throw new IllegalStateException("Windows did not confirm protection of the sealed log.");
+            // extra UAC prompt is needed. Only then restore the network state. On a
+            // RETRY after a failed seal the helper is already gone (the first attempt
+            // restored the network), so hardening is best-effort there — the vault is
+            // still encrypted and signed, and the invigilator gets a warning.
+            if (activeNetworkLockdown != null) {
+                File vault = new File(sessionFile.getParent(),
+                        sessionFile.getName().replace(".dat", ".vault"));
+                if (!LogProtection.protectViaHelper(List.of(vault, new File(vault.getAbsolutePath() + ".sig")))) {
+                    throw new IllegalStateException("Windows did not confirm protection of the sealed log.");
+                }
+            } else {
+                hardened = LogProtection.protectViaHelper(
+                        List.of(new File(sessionFile.getParent(),
+                                        sessionFile.getName().replace(".dat", ".vault"))));
             }
+            sealed = true;
             return true;
         } catch (Exception ex) {
             SwingUtilities.invokeLater(() ->
@@ -893,10 +911,24 @@ public class Main {
                                 "Network restore warning", JOptionPane.WARNING_MESSAGE));
             }
             sessionEnvironment.restore();
-            activeSession = null;
-            activeSecurityVault = null;
             activeWatchdog = null;
             activeWatchdogThread = null;
+            if (sealed) {
+                // Null the session ONLY on success: a failed seal must stay
+                // retryable. Nulling it here made the next "End session" click hit
+                // the activeSession == null shortcut and report a false
+                // "Session complete" with nothing sealed.
+                if (!hardened) {
+                    SwingUtilities.invokeLater(() ->
+                            JOptionPane.showMessageDialog(frame,
+                                    "The log was sealed, but the elevated helper had already stopped, so the\n"
+                                            + "sealed vault files could not be permission-hardened. Move or back\n"
+                                            + "up the vault from the dashboard if the student uses this PC next.",
+                                    "Sealed (not hardened)", JOptionPane.WARNING_MESSAGE));
+                }
+                activeSession = null;
+                activeSecurityVault = null;
+            }
         }
     }
 
@@ -1165,9 +1197,14 @@ public class Main {
                         + "$s.Save()";
                 Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps)
                         .redirectErrorStream(true).start();
+                if (!p.waitFor(15, TimeUnit.SECONDS)) {
+                    p.destroyForcibly();
+                    return; // transient failure: leave the marker unwritten so the next start retries
+                }
                 p.getInputStream().readAllBytes();
-                p.waitFor(15, TimeUnit.SECONDS);
-                marker.createNewFile();
+                // Only mark done when the shortcut really exists: an unconditional
+                // marker permanently skipped creation after a single COM failure.
+                if (p.exitValue() == 0 && lnk.isFile()) marker.createNewFile();
             } catch (Exception ex) {
                 AppLog.warn("Desktop shortcut creation failed: " + ex.getMessage());
             }

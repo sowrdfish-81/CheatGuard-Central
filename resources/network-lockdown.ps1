@@ -7,8 +7,18 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Fail-safe runs never receive a -Config file; every other entry point does.
+# Java writes the config as UTF-8 (no BOM): PS 5.1 Get-Content without
+# -Encoding decodes as the system ANSI codepage, silently mangling any
+# non-ASCII path inside. A config that is missing or unreadable must still
+# leave error.txt for the app instead of dying with a meaningless timeout.
 if (-not $FailSafeCheck) {
-    $cfg = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
+    try {
+        $cfg = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        try { 'Could not read helper config: ' + $_.Exception.Message |
+            Set-Content -LiteralPath (Join-Path $PSScriptRoot 'error.txt') -Encoding UTF8 } catch {}
+        exit 1
+    }
 }
 $stateFile = $cfg.stateFile
 $readyFile = $cfg.readyFile
@@ -324,7 +334,8 @@ function Handle-ProtectRequest {
         $allowedRoots = @($networkRoot)
         if ($vaultDir) { $allowedRoots += $vaultDir }
         $dirs = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
-        foreach ($line in Get-Content -LiteralPath $protectRequestFile -ErrorAction SilentlyContinue) {
+        $protectedCount = 0
+        foreach ($line in Get-Content -LiteralPath $protectRequestFile -Encoding UTF8 -ErrorAction SilentlyContinue) {
             $path = $line.Trim()
             if (-not $path) { continue }
             $ok = $false
@@ -343,15 +354,25 @@ function Handle-ProtectRequest {
             } catch { $ok = $false }
             if (-not $ok) { continue }
             Protect-LogFile $path
+            $protectedCount++
             $parent = Split-Path -Parent $path
             if ($parent) { [void]$dirs.Add($parent) }
         }
         foreach ($d in $dirs) { Protect-VaultDirectory $d }
+        # Confirm only when something was actually hardened: a done file after a
+        # rejected/failed request would make the app report success with NO
+        # protection applied. The confirm write must not tear down the live
+        # lockdown either (a failed marker write used to escape the try/catch
+        # above and Restore-All the whole session).
+        if ($protectedCount -gt 0) {
+            try {
+                Remove-Item -LiteralPath $protectRequestFile -Force -ErrorAction SilentlyContinue
+                if (-not [string]::IsNullOrWhiteSpace($protectDoneFile)) {
+                    'PROTECTED' | Set-Content -LiteralPath $protectDoneFile -Encoding ASCII
+                }
+            } catch {}
+        }
     } catch {}
-    Remove-Item -LiteralPath $protectRequestFile -Force -ErrorAction SilentlyContinue
-    if (-not [string]::IsNullOrWhiteSpace($protectDoneFile)) {
-        'PROTECTED' | Set-Content -LiteralPath $protectDoneFile -Encoding ASCII
-    }
 }
 
 # Removes the account's delete-child right on the vault folder. Without this a sealed
@@ -384,7 +405,7 @@ function Set-FileAccessLocks([string]$ListFile, [string]$Sid) {
     $locked = New-Object System.Collections.Generic.List[string]
     if ([string]::IsNullOrWhiteSpace($ListFile) -or [string]::IsNullOrWhiteSpace($Sid)) { return $locked }
     if (-not (Test-Path -LiteralPath $ListFile)) { return $locked }
-    foreach ($line in @(Get-Content -LiteralPath $ListFile -ErrorAction SilentlyContinue)) {
+    foreach ($line in @(Get-Content -LiteralPath $ListFile -Encoding UTF8 -ErrorAction SilentlyContinue)) {
         $p = $line.Trim()
         if (-not $p -or -not (Test-Path -LiteralPath $p)) { continue }
         try {
@@ -450,6 +471,10 @@ function Get-BlindDenyPaths {
             [void]$paths.Add($kid.FullName)
         }
     }
+    # The hosts write-deny is recorded only in the state file; when the state is
+    # lost, this sweep is the only recovery path that can remove it.
+    $hostsFile = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+    if (Test-Path -LiteralPath $hostsFile) { [void]$paths.Add($hostsFile) }
     return @($paths)
 }
 
@@ -489,7 +514,7 @@ function Read-AllowedIps {
     if (-not (Test-Path -LiteralPath $allowedIpFile)) { return @() }
     $ips = New-Object System.Collections.Generic.List[string]
     try {
-        foreach ($line in @(Get-Content -LiteralPath $allowedIpFile -ErrorAction SilentlyContinue)) {
+        foreach ($line in @(Get-Content -LiteralPath $allowedIpFile -Encoding UTF8 -ErrorAction SilentlyContinue)) {
             $v = $line.Trim()
             if (-not $v) { continue }
             $ip = $null
@@ -784,6 +809,13 @@ function Restore-All {
 
     if ($dnsOk) {
         Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue
+        # Session-session leftovers must go too: a surviving lock-paths.txt or
+        # allowed-ips.txt is "evidence" to the fail-safe task, which would then
+        # re-run the no-state restore (forcing outbound Allow, stripping DoH
+        # policies) on every tick for as long as the machine exists.
+        Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'lock-paths.txt') -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'allowed-ips.txt') -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'central-ip.txt') -Force -ErrorAction SilentlyContinue
         # The fail-safe task stays REGISTERED forever: the user's guarantee is that
         # every boot/logon recovers any leftover lockdown whether Cheat.Guard is
         # open or not. When nothing needs restoring the task exits in under a
@@ -830,7 +862,14 @@ if ($FailSafeCheck) {
             # there is nothing of ours to clean, so exit silently.
             $leftoverRules = @(Get-NetFirewallRule -Group 'Cheat.Guard Strict Exam' -ErrorAction SilentlyContinue).Count
             $lockList = Join-Path $PSScriptRoot 'lock-paths.txt'
-            if ($leftoverRules -lt 1 -and -not (Test-Path -LiteralPath $lockList)) { exit 0 }
+            # A verified restore leaves restored.marker and DELETES lock-paths.txt.
+            # A surviving lock list without a restored marker is real evidence;
+            # one next to a restored marker is a finished, clean session - running
+            # the no-state restore again would clobber the machine's own firewall
+            # defaults and DoH policies on every tick, forever.
+            if ($leftoverRules -lt 1) {
+                if (-not (Test-Path -LiteralPath $lockList) -or (Test-Path -LiteralPath $restoredFile)) { exit 0 }
+            }
         }
 
         # A session is only "interrupted" when NEITHER the app NOR the elevated
@@ -893,9 +932,14 @@ try {
 
     # Supersede any stale copy of this helper left behind by an interrupted start
     # or an app-side relaunch: two live helpers would race each other's restores.
+    # Launchers started with -Command (the app's Start-Process relay) must NOT be
+    # killed: on a slow machine the helper can reach this point while its own
+    # launcher is still finishing, and killing it made the app report a failed
+    # launch and roll back an otherwise healthy start.
     Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -match 'network-lockdown\.ps1' `
                        -and $_.CommandLine -match '-Config' `
+                       -and $_.CommandLine -notmatch '-Command' `
                        -and $_.ProcessId -ne $PID } |
         ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }
     Start-Sleep -Milliseconds 400
@@ -1010,9 +1054,14 @@ try {
     function Set-CentralRule {
         if ([string]::IsNullOrWhiteSpace($cfg.centralIpFile)) { return }
         if (-not (Test-Path -LiteralPath $cfg.centralIpFile)) { return }
-        $centralIps = @(Get-Content -LiteralPath $cfg.centralIpFile -ErrorAction SilentlyContinue |
+        $centralIps = @(Get-Content -LiteralPath $cfg.centralIpFile -Encoding UTF8 -ErrorAction SilentlyContinue |
             ForEach-Object { $_.Trim() } | Where-Object { $_ })
         if ($centralIps.Count -lt 1) { return }
+        # New-NetFirewallRule never replaces an existing rule: without removing
+        # the old one first, every refresh (every ~10 s) adds another identical
+        # persistent rule for the length of the exam.
+        Remove-NetFirewallRule -PolicyStore PersistentStore -DisplayName 'Cheat.Guard - central monitor out' `
+            -ErrorAction SilentlyContinue | Out-Null
         New-NetFirewallRule -PolicyStore PersistentStore -DisplayName 'Cheat.Guard - central monitor out' -Group $groupName `
             -Direction Outbound -Protocol TCP -RemoteAddress $centralIps -RemotePort $centralPort `
             -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
@@ -1091,8 +1140,11 @@ try {
     # Keep new or re-connected adapters on the filter for the whole session. A USB
     # Wi-Fi dongle or a re-connected Ethernet adapter comes up with DHCP DNS and
     # would resolve straight through the real resolvers, bypassing the exam allowlist.
+    # Seed ONLY with adapters that are Up right now — Set-ExamDns redirected exactly
+    # those. Pre-seeding the whole snapshot would mark a disconnected adapter as
+    # "already redirected", so when it connected mid-session it kept its own DHCP
+    # DNS and bypassed the filter entirely.
     $redirectedIfIndex = New-Object 'System.Collections.Generic.HashSet[string]'
-    foreach ($e in @($state.Dns)) { if ($e.InterfaceIndex) { [void]$redirectedIfIndex.Add([string]$e.InterfaceIndex) } }
     foreach ($a in @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })) {
         [void]$redirectedIfIndex.Add([string]$a.ifIndex)
     }
@@ -1124,7 +1176,7 @@ try {
         # name, otherwise the lockdown would linger for hours after a crash.
         $parent = Get-Process -Id ([int]$cfg.parentPid) -ErrorAction SilentlyContinue
         if (-not $parent) { break }
-        if ($cfg.parentName -and ($parent.ProcessName -ine $cfg.parentName)) { break }
+        if ($cfg.parentName -and ($parent.ProcessName -ine [IO.Path]::GetFileNameWithoutExtension($cfg.parentName))) { break }
         Handle-ProtectRequest
         $loopCount++
         if (($loopCount % 120) -eq 0) {

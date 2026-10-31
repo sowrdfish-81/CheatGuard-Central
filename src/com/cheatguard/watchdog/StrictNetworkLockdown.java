@@ -252,6 +252,12 @@ public final class StrictNetworkLockdown implements Closeable {
         // for a dead helper and trigger a spurious relaunch.
         active = false;
         try {
+            // A restored.marker left over from a PREVIOUS session would satisfy
+            // waitForRestore immediately and report success while this machine is
+            // still locked down. Clear the old confirmations before asking for a
+            // fresh one.
+            restored.delete();
+            error.delete();
             Files.writeString(stop.toPath(), "STOP", StandardCharsets.US_ASCII);
             // A verified restore sweeps every drive root and profile folder with
             // icacls and retries DNS - it can legitimately take over a minute on a
@@ -684,9 +690,14 @@ public final class StrictNetworkLockdown implements Closeable {
     private String currentUserSid() throws IOException, InterruptedException {
         Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value")
                 .redirectErrorStream(true).start();
-        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-        p.waitFor();
-        return out;
+        // This runs on the session-starter thread: sessionBusy is only cleared
+        // after it returns, so an unbounded wait would wedge every future
+        // session action until the app is killed. Output is one SID line.
+        if (!p.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)) {
+            p.destroyForcibly();
+            throw new IOException("Could not read the current user's SID in time.");
+        }
+        return new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
     }
 
     /**
@@ -705,11 +716,12 @@ public final class StrictNetworkLockdown implements Closeable {
     }
 
     /** This process's executable name; the helper verifies it against parentPid so
-     *  a reused PID can never keep a dead session's lockdown alive. */
+     *  a reused PID can never keep a dead session's lockdown alive. PowerShell's
+     *  ProcessName carries no .exe extension, so strip it before sending. */
     private String parentName() {
         try {
             String cmd = ProcessHandle.current().info().command().orElse("");
-            if (!cmd.isBlank()) return new File(cmd).getName();
+            if (!cmd.isBlank()) return new File(cmd).getName().replaceAll("(?i)\\.exe$", "");
         } catch (Exception ignored) {
         }
         return "CheatGuard";

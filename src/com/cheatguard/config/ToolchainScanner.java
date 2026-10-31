@@ -6,7 +6,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -99,16 +101,30 @@ public final class ToolchainScanner {
             Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
                     "-WindowStyle", "Hidden", "-Command", script)
                     .redirectErrorStream(true).start();
-            try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    String v = line.trim();
-                    if (v.length() > 4 && v.toLowerCase().endsWith(".exe")) paths.add(v);
+            List<String> collected = new ArrayList<>();
+            // The probe can emit thousands of lines (more than the pipe buffer),
+            // so draining must happen DURING the wait - on a daemon reader thread,
+            // with the timeout enforced on waitFor. Reading to EOF first made the
+            // 90-second timeout unreachable on a hung probe and re-ran the whole
+            // scan on every app start.
+            Thread reader = new Thread(() -> {
+                try (BufferedReader r = new BufferedReader(
+                        new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = r.readLine()) != null) {
+                        String v = line.trim();
+                        if (v.length() > 4 && v.toLowerCase().endsWith(".exe")) collected.add(v);
+                    }
+                } catch (Exception ignored) {
                 }
+            }, "CheatGuard-ToolchainScan");
+            reader.setDaemon(true);
+            reader.start();
+            if (!p.waitFor(90, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
             }
-            p.waitFor(90, java.util.concurrent.TimeUnit.SECONDS);
-            if (p.isAlive()) p.destroyForcibly();
+            reader.join(5000);
+            paths.addAll(collected);
         } catch (Exception e) {
             AppLog.warn("Toolchain probe error: " + e.getMessage());
         }

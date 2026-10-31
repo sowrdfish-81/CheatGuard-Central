@@ -31,6 +31,15 @@ public class FolderAccessMonitor {
         try {
             String cmd = "$s=New-Object -ComObject Shell.Application; $s.Windows() | ForEach-Object { try { if($_.FullName -match 'explorer.exe$' -and $_.LocationURL -like 'file:*'){ $_.LocationURL } } catch {} }";
             Process p = PowerShellUtil.start(cmd);
+            // This probe runs synchronously on the watchdog loop: an unbounded
+            // readLine/waitFor here would silently stop ALL enforcement (process
+            // sweeps, device checks, folder checks) for the rest of the session.
+            // Wait bounded, then drain; output is a handful of file:// lines.
+            if (!p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                AppLog.warn("Folder scan timed out; skipping this cycle");
+                return paths;
+            }
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
@@ -40,7 +49,6 @@ public class FolderAccessMonitor {
                     catch (Exception ignored) {}
                 }
             }
-            p.waitFor();
         } catch (Exception e) {
             AppLog.warn("Folder scan error: " + e.getMessage());
         }

@@ -18,10 +18,25 @@ final class WebsiteViolationReporter {
     private final SiteMonitor siteMonitor = new SiteMonitor();
     private final ProcessWhitelist processWhitelist = new ProcessWhitelist();
 
+    /**
+     * Immutable foreground snapshot published in ONE volatile write. The four
+     * separate volatile fields this replaced could interleave between DNS
+     * worker threads, mixing browser=true from one probe with host="" from the
+     * next (misreporting or suppressing a student violation for a cache cycle).
+     */
+    private static final class ForegroundSnapshot {
+        final boolean browser;
+        final boolean allowed;
+        final String host;
+        ForegroundSnapshot(boolean browser, boolean allowed, String host) {
+            this.browser = browser;
+            this.allowed = allowed;
+            this.host = host;
+        }
+    }
+
+    private volatile ForegroundSnapshot foregroundCache = new ForegroundSnapshot(false, false, "");
     private volatile long foregroundCacheAt;
-    private volatile String foregroundCacheHost = "";
-    private volatile boolean foregroundCacheBrowser;
-    private volatile boolean foregroundCacheAllowed;
 
     /**
      * Map a denied host to the host that should be reported as a RED violation.
@@ -64,15 +79,14 @@ final class WebsiteViolationReporter {
             } catch (Exception ignored) {
                 // treat a failed probe as "not a foreground browser"
             }
-            foregroundCacheHost = host;
-            foregroundCacheBrowser = browser;
-            foregroundCacheAllowed = allowedPage;
+            foregroundCache = new ForegroundSnapshot(browser, allowedPage, host);
             foregroundCacheAt = now;
         }
 
-        if (!foregroundCacheBrowser) return null;
-        if (foregroundCacheAllowed) return null;
-        if (!foregroundCacheHost.isEmpty()) return foregroundCacheHost;
+        ForegroundSnapshot snap = foregroundCache;
+        if (!snap.browser) return null;
+        if (snap.allowed) return null;
+        if (!snap.host.isEmpty()) return snap.host;
 
         // Address bar not exposed and the title does not identify an approved page.
         return blockedHost;

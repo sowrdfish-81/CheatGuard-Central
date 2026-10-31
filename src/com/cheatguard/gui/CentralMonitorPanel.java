@@ -5,10 +5,13 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.BufferedWriter;
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
@@ -377,30 +380,41 @@ public class CentralMonitorPanel extends JPanel {
     private void readClient(Socket socket) {
         try (socket; InputStream in = socket.getInputStream();
              OutputStream out = socket.getOutputStream()) {
+            // Unauthenticated peers must not pin a reader thread forever: the
+            // firewall rule opens this port to the whole subnet, and a connect-
+            // and-hold client would otherwise hold its thread (and nonce)
+            // indefinitely.
+            socket.setSoTimeout(30000);
             String nonce = CentralAuth.newNonce();
             out.write(("CHALLENGE@@@" + nonce + "\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
-            byte[] buf = new byte[8192];
-            StringBuilder pending = new StringBuilder();
+            // Decode through a reader instead of per-chunk new String(): a
+            // multi-byte UTF-8 character split across two read() chunks used to
+            // arrive corrupted (garbled rows, or one student split into two).
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(in, StandardCharsets.UTF_8));
             ConnectionState connection = new ConnectionState(nonce);
-            int read;
-            while (running && (read = in.read(buf)) != -1) {
-                pending.append(new String(buf, 0, read, StandardCharsets.UTF_8));
-                if (pending.length() > MAX_PENDING_BYTES) return;
-                int nl;
-                while ((nl = pending.indexOf("\n")) >= 0) {
-                    String line = pending.substring(0, nl).trim();
-                    pending.delete(0, nl + 1);
-                    if (!line.isEmpty()) handleLine(line, socket, connection);
+            String line;
+            while (running && (line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                if (line.length() > MAX_PENDING_BYTES) return;
+                if (!connection.authenticated && line.startsWith("AUTH@@@")) {
+                    // The client may idle for the whole exam now; only the
+                    // pre-auth handshake is time-boxed.
+                    socket.setSoTimeout(0);
                 }
+                handleLine(line, socket, out, connection);
             }
         } catch (Exception ignored) {
             // the student PC disconnected; its rows stay on screen
+        } finally {
+            closables.remove(socket);
         }
     }
 
     /** Line format: millis@@@pc@@@student@@@course@@@severity@@@type@@@message@@@display */
-    private void handleLine(String line, Socket socket, ConnectionState connection) {
+    private void handleLine(String line, Socket socket, OutputStream out, ConnectionState connection) {
         String[] p = line.split("@@@", 8);
         String time;
         String pc;
@@ -420,6 +434,14 @@ public class CentralMonitorPanel extends JPanel {
                     || !CentralAuth.constantTimeEquals(
                     CentralAuth.response(examCode, connection.nonce, connection.pc,
                             connection.student, connection.course), p[1].trim())) {
+                // Tell the student PC WHY the connection died: without an
+                // acknowledgement a rejected client silently retried forever,
+                // discarding every queued event (a mistyped exam code looked
+                // like a dead monitor).
+                try {
+                    out.write(("DENIED\n").getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                } catch (Exception ignored) {}
                 try { socket.close(); } catch (Exception ignored) {}
                 SwingUtilities.invokeLater(() -> {
                     statusLabel.setText("Rejected an unauthenticated central connection.");
@@ -428,6 +450,10 @@ public class CentralMonitorPanel extends JPanel {
                 return;
             }
             connection.authenticated = true;
+            try {
+                out.write(("OK\n").getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            } catch (Exception ignored) {}
             time = new SimpleDateFormat("HH:mm:ss").format(new Date());
             pc = connection.pc;
             student = connection.student;
@@ -448,6 +474,10 @@ public class CentralMonitorPanel extends JPanel {
             String type = p[5].trim();
             String message = p.length >= 8 ? p[7].trim() : p[6].trim();
             event = message.startsWith(type + ":") ? message : type + ": " + message;
+            // Cap retained event text: without a per-event byte budget, an
+            // authenticated spamming client could retain ~136 KB x 2000 events
+            // per student record and push the invigilator toward OOM.
+            if (event.length() > 4096) event = event.substring(0, 4096) + " …";
         } else {
             return;
         }
@@ -662,8 +692,15 @@ public class CentralMonitorPanel extends JPanel {
             if (!dir.exists()) dir.mkdirs();
             File csvFile = new File(dir, "central-log-"
                     + new SimpleDateFormat("yyyyMMdd").format(new Date()) + ".csv");
-            csvWriter = new BufferedWriter(new FileWriter(csvFile, true));
-            csvWriter.write("time,pc,student,course,level,event\n");
+            boolean fresh = !csvFile.isFile() || csvFile.length() == 0;
+            // Explicit UTF-8 (with BOM so Excel detects it): the platform default
+            // on Windows mangled non-ASCII student IDs / course codes, and this
+            // CSV is the official audit record. Also: a header row per restart
+            // corrupted the day's file — write it only for a fresh file.
+            csvWriter = new BufferedWriter(new OutputStreamWriter(
+                    new FileOutputStream(csvFile, true), StandardCharsets.UTF_8));
+            csvWriter.write(fresh ? "﻿time,pc,student,course,level,event\n"
+                    : "");
         } catch (Exception e) {
             csvWriter = null;
         }

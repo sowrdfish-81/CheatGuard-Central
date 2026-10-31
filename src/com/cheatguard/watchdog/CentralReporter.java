@@ -62,8 +62,10 @@ public final class CentralReporter {
         this.examCode = examCode == null ? "" : examCode.trim();
         if (!this.manualHost.isEmpty()) {
             centralHost = this.manualHost;
-            persistCentralIp(this.manualHost);
         }
+        // Always (re)write the IP file: a stale file from a PREVIOUS session would
+        // make the lockdown helper's outbound rule trust the old invigilator PC.
+        persistCentralIp(this.manualHost);
         String pc = "PC";
         try {
             pc = InetAddress.getLocalHost().getHostName().trim();
@@ -167,6 +169,25 @@ public final class CentralReporter {
                         session.getStudentId(), session.getCourseCode());
                 out.write((hello + "\n" + auth + "\n").getBytes(StandardCharsets.UTF_8));
                 out.flush();
+                // Read the monitor's verdict. Without it a WRONG exam code looked
+                // exactly like a dead monitor: the client reconnected every 2 s
+                // forever while silently discarding up to 50 queued events per
+                // cycle. A legacy (pre-1.9.18) monitor sends no verdict and its
+                // 15 s read timeout is treated as a silent OK.
+                String ack;
+                try {
+                    ack = in.readLine();
+                } catch (java.net.SocketTimeoutException legacyMonitor) {
+                    ack = "OK";
+                }
+                if (ack == null) {
+                    throw new java.io.IOException("Central monitor rejected the connection (wrong exam code?)");
+                }
+                if (ack.startsWith("DENIED")) {
+                    com.cheatguard.core.AppLog.warn(
+                            "Central monitor rejected the exam code; central reporting is disabled for this session.");
+                    return;
+                }
                 while (running || hasQueuedEvents()) {
                     synchronized (queue) {
                         batch.clear();
@@ -182,6 +203,14 @@ public final class CentralReporter {
                 stopping = false;
             } catch (Exception e) {
                 // monitor down or lockdown blocking: retry after a pause
+                // Put a polled-but-unsent batch back at the HEAD of the queue, or a
+                // mid-batch write failure would silently drop up to 50 events.
+                if (!batch.isEmpty()) {
+                    synchronized (queue) {
+                        for (int i = batch.size() - 1; i >= 0; i--) queue.addFirst(batch.get(i));
+                    }
+                    batch.clear();
+                }
                 if (stopping) break;
                 sleepQuiet(2000);
             }
